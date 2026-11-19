@@ -1,0 +1,12 @@
+min_account_age_hours: 24
+accounts:
+  - id: CUST-NEW
+    name: New customer
+    age_hours: 3
+    known_devices: []
+    balance: 2000
+  - id: CUST-AGED
+    name: Aged customer
+    age_hours: 9000
+    known_devices: [DEV-KNOWN]
+    balance: 8000

@@ -1,0 +1,26 @@
+id: EU
+name: Europe sample
+on_detect: block
+threshold: 0.5
+entities:
+  - id: EU_IBAN
+    label: IBAN
+    pattern: '\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b'
+    score: 0.75
+    context: [iban, account]
+    validator: iban
+  - id: ES_NIF
+    label: Spanish NIF or NIE
+    pattern: '\b(?:\d{8}[A-Z]|[XYZ]\d{7}[A-Z])\b'
+    score: 0.7
+    context: [nif, nie, dni]
+  - id: PL_PESEL
+    label: Polish PESEL
+    pattern: '\b\d{11}\b'
+    score: 0.6
+    context: [pesel]
+  - id: IT_FISCAL
+    label: Italian fiscal code
+    pattern: '\b[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]\b'
+    score: 0.8
+    context: ["fiscal", "codice"]

@@ -1,0 +1,16 @@
+id: SG
+name: Singapore
+on_detect: block
+threshold: 0.5
+entities:
+  - id: SG_NRIC
+    label: NRIC or FIN
+    pattern: '\b[STFGM]\d{7}[A-Z]\b'
+    score: 0.7
+    context: [nric, fin, identity]
+    validator: sg_nric
+  - id: SG_UEN
+    label: UEN
+    pattern: '\b\d{8,9}[A-Z]\b'
+    score: 0.65
+    context: [uen, "unique entity"]

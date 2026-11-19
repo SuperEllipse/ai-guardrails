@@ -1,0 +1,20 @@
+id: US
+name: United States
+on_detect: block
+threshold: 0.5
+entities:
+  - id: US_SSN
+    label: Social Security number
+    pattern: '\b\d{3}-\d{2}-\d{4}\b'
+    score: 0.9
+    context: [ssn, "social security"]
+  - id: US_ITIN
+    label: ITIN
+    pattern: '\b9\d{2}-\d{2}-\d{4}\b'
+    score: 0.85
+    context: [itin]
+  - id: US_BANK
+    label: Bank account
+    pattern: '\b\d{8,12}\b'
+    score: 0.55
+    context: [account, routing, bank]

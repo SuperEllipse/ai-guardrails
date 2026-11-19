@@ -1,0 +1,8 @@
+# Payment check. The guard server runs this before any ledger change.
+# Block when the account is under the age limit, or the device is not known.
+
+define subflow check transfer gate
+  $allowed = execute check_transfer_gate
+  if not $allowed
+    bot refuse to respond
+    stop

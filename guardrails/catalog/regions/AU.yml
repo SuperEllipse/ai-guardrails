@@ -1,0 +1,21 @@
+id: AU
+name: Australia
+on_detect: block
+threshold: 0.5
+entities:
+  - id: AU_TFN
+    label: Tax file number
+    pattern: '\b\d{3}\s?\d{3}\s?\d{3}\b'
+    score: 0.65
+    context: [tfn, "tax file"]
+    validator: au_tfn
+  - id: AU_MEDICARE
+    label: Medicare number
+    pattern: '\b\d{4}\s?\d{5}\s?\d\b'
+    score: 0.7
+    context: [medicare]
+  - id: AU_ABN
+    label: ABN or ACN
+    pattern: '\b\d{2}\s?\d{3}\s?\d{3}\s?\d{3}\b'
+    score: 0.65
+    context: [abn, acn, "business number"]

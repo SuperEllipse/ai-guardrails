@@ -1,0 +1,24 @@
+id: global
+name: Always on
+on_detect: block
+threshold: 0.5
+entities:
+  - id: CARD
+    label: Card number
+    pattern: '\b(?:\d[ -]*?){13,16}\b'
+    score: 0.9
+    validator: card_luhn
+  - id: EMAIL
+    label: Email address
+    pattern: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
+    score: 0.85
+  - id: PHONE
+    label: Phone number
+    pattern: '(?:\+\d{1,3}[\s-]?)?(?:\(?\d{2,4}\)?[\s-]?)?\d{3,4}[\s-]?\d{3,4}'
+    score: 0.6
+    context: [phone, mobile, call]
+  - id: OTP
+    label: One-time code
+    pattern: '\b\d{6}\b'
+    score: 0.8
+    context: [otp, "one-time", "one time", passcode]

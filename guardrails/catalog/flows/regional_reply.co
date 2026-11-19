@@ -1,0 +1,8 @@
+# Reply check. If a written rule fails, stop.
+# When the rule says rewrite, the server returns the sentence for the region.
+
+define subflow check written rules on output
+  $blocked = execute check_written_rules(text=$bot_message, stage="output")
+  if $blocked
+    bot refuse to respond
+    stop

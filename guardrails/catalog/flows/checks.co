@@ -1,0 +1,20 @@
+# Input checks run first. Personal data does not call a model.
+# Written rules ask the answer model one yes-or-no question.
+
+define subflow check regional pii on input
+  $blocked = execute screen_pii(text=$user_message, stage="input")
+  if $blocked
+    bot refuse to respond
+    stop
+
+define subflow check written rules on input
+  $blocked = execute check_written_rules(text=$user_message, stage="input")
+  if $blocked
+    bot refuse to respond
+    stop
+
+define subflow check regional pii on output
+  $blocked = execute screen_pii(text=$bot_message, stage="output")
+  if $blocked
+    bot refuse to respond
+    stop
