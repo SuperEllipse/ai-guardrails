@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api import batch_jobs
+from src.api.demo_api import register_demo_routes
 from src.api.schemas import BatchRequest, QueryRequest
 from src.api.settings import build_configs, default_guardrails_server_url, ui_defaults
 from src.guardrails.client import GuardrailsClient
@@ -181,6 +182,7 @@ def create_app() -> FastAPI:
     async def batch_runs() -> list[dict[str, Any]]:
         return ViolationStore().get_batch_runs()
 
+    register_demo_routes(app)
     _mount_frontend(app)
     return app
 

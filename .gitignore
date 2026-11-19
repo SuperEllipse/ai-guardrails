@@ -14,6 +14,9 @@ venv/
 # Runtime / generated data
 data/violations.db
 *.db
+guardrails/active/
+guardrails/catalog/connection.yml
+guardrails/catalog/deployed/
 
 # IDE and editor tooling
 .cursor/

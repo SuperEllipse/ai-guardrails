@@ -54,6 +54,9 @@ def run_uvicorn_server(
         resolve_rails_layout,
     )
 
+    from src.guardrails.catalog_build import CONFIG_ID, build_active_config
+
+    build_active_config()
     rails_parent = get_rails_config_parent(source_config_path)
     _, _, layout_config_id = resolve_rails_layout(source_config_path)
     config_id = (
@@ -62,10 +65,14 @@ def run_uvicorn_server(
         or os.environ.get("GUARDRAILS_CONFIG_ID")
         or layout_config_id
     )
-    os.environ.setdefault("DEFAULT_CONFIG_ID", config_id)
-    os.environ.setdefault("GUARDRAILS_CONFIG_ID", config_id)
+    os.environ["DEFAULT_CONFIG_ID"] = config_id
+    os.environ["GUARDRAILS_CONFIG_ID"] = config_id
 
-    rails_config_path = str(prepare_server_config_from_env(source_config_path))
+    # The active folder is rebuilt on deploy. Do not serve a one-time copy of it.
+    if config_id == CONFIG_ID:
+        rails_config_path = str(Path(source_config_path).resolve())
+    else:
+        rails_config_path = str(prepare_server_config_from_env(source_config_path))
     examples_path = os.path.abspath(utils.get_examples_data_path("bots"))
     if os.path.abspath(rails_config_path) == examples_path:
         print(
@@ -78,6 +85,10 @@ def run_uvicorn_server(
     api.set_default_config_id(config_id)
 
     server_app: FastAPI = api.app
+    if config_id == CONFIG_ID:
+        from src.guardrails.server_routes import mount_guard_routes
+
+        mount_guard_routes(server_app)
 
     print(f"NeMo Guardrails rails_config_path={rails_config_path}", file=sys.stderr)
     print(f"NeMo Guardrails rails parent={rails_parent}", file=sys.stderr)

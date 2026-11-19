@@ -38,7 +38,7 @@ MODE_OPTIONS: list[dict[str, str]] = [
 ]
 
 SAFETY_OPTIONS: list[dict[str, str]] = [
-    {"key": "self_check", "label": "Main LLM (self_check)"},
+    {"key": "self_check", "label": "LLM as Self Judge"},
     {"key": "llama_guard", "label": "Llama Guard 3 (CAII)"},
     {"key": "nim", "label": "NVIDIA NIM"},
 ]

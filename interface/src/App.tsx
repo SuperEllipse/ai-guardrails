@@ -1,41 +1,30 @@
 import { useEffect, useState } from "react";
-import { api } from "./api/client";
-import type { ExamplesResponse, UiConfig } from "./api/types";
-import { Architecture } from "./components/Architecture";
-import { BatchDashboard } from "./components/BatchDashboard";
-import { ChatCompare } from "./components/ChatCompare";
-import { SettingsPanel } from "./components/SettingsPanel";
-import { StatusBar } from "./components/StatusBar";
+import { demoApi, type DemoConfig } from "./api/demo";
+import { Configuration } from "./components/Configuration";
+import { RedTeam } from "./components/RedTeam";
 import { ThemeToggle } from "./components/ThemeToggle";
-import { SettingsProvider } from "./state/SettingsContext";
-import { StatusProvider } from "./state/StatusContext";
+import { UseCases } from "./components/UseCases";
 
 const TABS = [
-  { id: "chat", label: "Chat Compare" },
-  { id: "batch", label: "Batch Dashboard" },
-  { id: "architecture", label: "Architecture" },
+  { id: "usecases", label: "Compliance / Risks" },
+  { id: "configuration", label: "Configuration" },
+  { id: "redteam", label: "Red teaming" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
 
 function tabFromHash(): TabId {
   const id = window.location.hash.replace(/^#\/?/, "");
-  return TABS.some((t) => t.id === id) ? (id as TabId) : "chat";
+  return TABS.some((tab) => tab.id === id) ? (id as TabId) : "usecases";
 }
 
 export default function App() {
-  const [config, setConfig] = useState<UiConfig | null>(null);
-  const [examples, setExamples] = useState<ExamplesResponse | null>(null);
-  const [loadError, setLoadError] = useState("");
+  const [config, setConfig] = useState<DemoConfig | null>(null);
+  const [error, setError] = useState("");
   const [tab, setTab] = useState<TabId>(tabFromHash);
 
   useEffect(() => {
-    Promise.all([api.config(), api.examples()])
-      .then(([cfg, ex]) => {
-        setConfig(cfg);
-        setExamples(ex);
-      })
-      .catch((err: Error) => setLoadError(err.message));
+    demoApi.config().then(setConfig).catch((err: Error) => setError(err.message));
   }, []);
 
   useEffect(() => {
@@ -44,75 +33,55 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  if (loadError) {
+  if (error) {
     return (
       <div className="center-screen">
-        <div className="banner banner-critical" role="alert">
-          <span className="banner-icon" aria-hidden="true">!</span>
-          <div>
-            <strong>Could not reach the API</strong>
-            <p className="small">{loadError}</p>
-          </div>
-        </div>
+        <p className="banner banner-critical">{error}</p>
       </div>
     );
   }
-
-  if (!config || !examples) {
+  if (!config) {
     return (
-      <div className="center-screen muted">
+      <div className="center-screen">
         <span className="spinner" aria-label="Loading" />
       </div>
     );
   }
 
   return (
-    <SettingsProvider config={config}>
-      <StatusProvider>
+    <>
       <header className="app-header">
         <div className="brand">
-          <div className="brand-mark" aria-hidden="true">FN</div>
           <div>
-            <h1>NeMo Guardrails Banking Demo</h1>
-            <p>CrewAI multi-agent banking assistant with modular safety policies</p>
+            <p className="eyebrow">Banking assistant</p>
+            <h1>Guardrails</h1>
           </div>
         </div>
-        <nav className="tabs" role="tablist" aria-label="Views">
-          {TABS.map((t) => (
+        <nav className="tabs" role="tablist" aria-label="Screens">
+          {TABS.map((item) => (
             <button
-              key={t.id}
+              key={item.id}
               className="tab"
+              type="button"
               role="tab"
-              aria-selected={tab === t.id}
+              aria-selected={tab === item.id}
               onClick={() => {
-                window.location.hash = `/${t.id}`;
+                window.location.hash = `/${item.id}`;
               }}
             >
-              {t.label}
+              {item.label}
             </button>
           ))}
         </nav>
         <div className="header-end">
-          <StatusBar />
           <ThemeToggle />
         </div>
       </header>
-      <div className="layout">
-        <SettingsPanel />
-        <main className="main">
-          {/* Keep every view mounted so in-progress results survive tab switches. */}
-          <div hidden={tab !== "chat"}>
-            <ChatCompare examples={examples.examples} />
-          </div>
-          <div hidden={tab !== "batch"}>
-            <BatchDashboard datasetSize={examples.dataset_size} />
-          </div>
-          <div hidden={tab !== "architecture"}>
-            <Architecture />
-          </div>
-        </main>
-      </div>
-      </StatusProvider>
-    </SettingsProvider>
+      <main className="main demo-main">
+        {tab === "usecases" && <UseCases config={config} />}
+        {tab === "configuration" && <Configuration config={config} onChange={setConfig} />}
+        {tab === "redteam" && <RedTeam config={config} />}
+      </main>
+    </>
   );
 }

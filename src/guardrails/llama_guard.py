@@ -8,6 +8,8 @@ from dataclasses import dataclass
 
 from src.llm.provider import SafetyModelConfig, _read_cdp_token, is_llama_guard_configured
 
+logger = logging.getLogger(__name__)
+
 
 def parse_llama_guard_response(text: str) -> tuple[bool, str]:
     """Parse Llama Guard output: ``safe`` or ``unsafe`` plus optional category code."""

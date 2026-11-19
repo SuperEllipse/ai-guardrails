@@ -84,7 +84,7 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Rails config root (default: guardrails/ under project root).",
     )
-    parser.add_argument("--default-config-id", default="base")
+    parser.add_argument("--default-config-id", default="active")
     args, _unknown = parser.parse_known_args()
     return args
 
