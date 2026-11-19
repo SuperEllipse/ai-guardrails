@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Start NeMo Guardrails server with configurable host (CLI hardcodes 0.0.0.0)."""
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+
+def _verify_bind(host: str, port: int) -> bool:
+    from src.runtime.startup import _can_bind
+
+    if _can_bind(host, port):
+        return True
+    print(
+        f"ERROR: Cannot bind to {host}:{port} (address already in use or permission denied).",
+        file=sys.stderr,
+    )
+    return False
+
+
+def run_uvicorn_server(
+    *,
+    config: str,
+    host: str,
+    port: int,
+    default_config_id: str | None = None,
+) -> int:
+    try:
+        import uvicorn  # noqa: F401
+        from fastapi import FastAPI
+
+        from nemoguardrails import utils
+        from nemoguardrails.server import api
+        from nemoguardrails.telemetry import DeploymentTypeEnum, set_deployment_type
+    except ImportError:
+        print(
+            "Server dependencies are missing. Install with: pip install nemoguardrails[server]",
+            file=sys.stderr,
+        )
+        return 1
+
+    set_deployment_type(DeploymentTypeEnum.API.value)
+
+    source_config_path = os.path.abspath(os.path.expanduser(config.rstrip(os.path.sep)))
+    from src.guardrails.config_composer import (
+        get_rails_config_parent,
+        prepare_server_config_from_env,
+        resolve_rails_layout,
+    )
+
+    rails_parent = get_rails_config_parent(source_config_path)
+    _, _, layout_config_id = resolve_rails_layout(source_config_path)
+    config_id = (
+        default_config_id
+        or os.environ.get("DEFAULT_CONFIG_ID")
+        or os.environ.get("GUARDRAILS_CONFIG_ID")
+        or layout_config_id
+    )
+    os.environ.setdefault("DEFAULT_CONFIG_ID", config_id)
+    os.environ.setdefault("GUARDRAILS_CONFIG_ID", config_id)
+
+    rails_config_path = str(prepare_server_config_from_env(source_config_path))
+    examples_path = os.path.abspath(utils.get_examples_data_path("bots"))
+    if os.path.abspath(rails_config_path) == examples_path:
+        print(
+            f"Refusing to start: rails_config_path still points at nemoguardrails examples ({examples_path})",
+            file=sys.stderr,
+        )
+        return 1
+
+    api.app.rails_config_path = rails_config_path
+    api.set_default_config_id(config_id)
+
+    server_app: FastAPI = api.app
+
+    print(f"NeMo Guardrails rails_config_path={rails_config_path}", file=sys.stderr)
+    print(f"NeMo Guardrails rails parent={rails_parent}", file=sys.stderr)
+    print(f"NeMo Guardrails default config_id={config_id}", file=sys.stderr)
+
+    if not _verify_bind(host, port):
+        return 1
+
+    from src.runtime.uvicorn_runner import serve
+
+    return serve(server_app, host, port, thread_name="guardrails-uvicorn")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="NeMo Guardrails uvicorn launcher")
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="Rails config root (e.g. ./guardrails) or legacy ./guardrails/base",
+    )
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--host", default=os.environ.get("GUARDRAILS_HOST", "127.0.0.1"))
+    parser.add_argument("--default-config-id", default=None)
+    args = parser.parse_args()
+
+    return run_uvicorn_server(
+        config=args.config,
+        host=args.host,
+        port=args.port,
+        default_config_id=args.default_config_id,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

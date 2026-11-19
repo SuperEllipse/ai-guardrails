@@ -1,0 +1,302 @@
+#!/usr/bin/env python3
+"""Verify CAIIS LLM config flows to CrewAI without live network calls."""
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.runtime.sqlite_compat import apply_sqlite3_compat
+
+apply_sqlite3_compat()
+
+from src.llm.caiis_url import (
+    build_caiis_base_url,
+    is_caiis_url_configured,
+    resolve_caiis_base_url,
+    resolve_caiis_model,
+    resolve_llama_guard_model,
+)
+from src.llm.provider import (
+    create_crewai_llm,
+    default_caiis_config,
+    default_llm_config,
+    detect_default_provider,
+    get_llm_config,
+    is_caiis_configured,
+)
+
+
+def _assert(condition: bool, message: str) -> None:
+    if not condition:
+        raise AssertionError(message)
+
+
+def test_resolve_caiis_model_from_org_and_name() -> None:
+    env = {
+        "CAIIS_MODEL_ORG": "meta-llama",
+        "CAIIS_MODEL_NAME": "Llama-3.1-8B-Instruct",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        _assert(
+            resolve_caiis_model() == "meta-llama/Llama-3.1-8B-Instruct",
+            "org+name should join into model id",
+        )
+
+
+def test_resolve_caiis_model_full_takes_precedence() -> None:
+    env = {
+        "CAIIS_MODEL": "nvidia/nemotron-3-nano",
+        "CAIIS_MODEL_ORG": "meta-llama",
+        "CAIIS_MODEL_NAME": "Llama-3.1-8B-Instruct",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        _assert(
+            resolve_caiis_model() == "nvidia/nemotron-3-nano",
+            "full CAIIS_MODEL should take precedence over org+name",
+        )
+
+
+def test_resolve_llama_guard_model_from_org_and_name() -> None:
+    env = {
+        "LLAMA_GUARD_MODEL_ORG": "meta-llama",
+        "LLAMA_GUARD_MODEL_NAME": "Llama-Guard-3-8B",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        _assert(
+            resolve_llama_guard_model() == "meta-llama/Llama-Guard-3-8B",
+            "org+name should join into Llama Guard model id",
+        )
+
+
+def test_resolve_llama_guard_model_full_takes_precedence() -> None:
+    env = {
+        "LLAMA_GUARD_MODEL": "meta-llama/Llama-Guard-3-8B",
+        "LLAMA_GUARD_MODEL_ORG": "other-org",
+        "LLAMA_GUARD_MODEL_NAME": "other-name",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        _assert(
+            resolve_llama_guard_model() == "meta-llama/Llama-Guard-3-8B",
+            "full LLAMA_GUARD_MODEL should take precedence over org+name",
+        )
+
+
+def test_get_llm_config_caiis_from_model_parts() -> None:
+    env = {
+        "CAIIS_BASE_URL": "https://caiis.example.com/v1",
+        "CAIIS_MODEL_ORG": "meta-llama",
+        "CAIIS_MODEL_NAME": "Llama-3.1-8B-Instruct",
+        "CDP_TOKEN": "test-cdp-token",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        cfg = get_llm_config(provider="caiis")
+        _assert(
+            cfg.model == "meta-llama/Llama-3.1-8B-Instruct",
+            "model should resolve from CAIIS_MODEL_ORG+NAME",
+        )
+
+
+def test_build_caiis_base_url_from_parts() -> None:
+    expected = (
+        "https://caiis.example.com/namespaces/serving-default/endpoints/mpark-nemotron/openai/v1"
+    )
+    built = build_caiis_base_url("caiis.example.com", "mpark-nemotron")
+    _assert(built == expected, f"build_caiis_base_url mismatch: {built}")
+
+    env = {
+        "CAIIS_HOST": "caiis.example.com",
+        "CAIIS_ENDPOINT": "mpark-nemotron",
+        "CAIIS_NAMESPACE": "serving-default",
+        "CAIIS_API_PATH": "openai",
+        "CAIIS_MODEL": "nvidia/nemotron-3-nano",
+        "CDP_TOKEN": "test-cdp-token",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        _assert(is_caiis_configured(), "CAIIS should be configured from HOST+ENDPOINT")
+        _assert(
+            detect_default_provider() == "caiis",
+            "default provider should be caiis when CAIIS_HOST+ENDPOINT are set",
+        )
+        cfg = get_llm_config(provider="caiis")
+        _assert(cfg.base_url == expected, "base_url should be built from CAIIS parts")
+
+
+def test_caiis_base_url_overrides_parts() -> None:
+    env = {
+        "CAIIS_BASE_URL": "https://legacy.example.com/v1",
+        "CAIIS_HOST": "caiis.example.com",
+        "CAIIS_ENDPOINT": "mpark-nemotron",
+        "CDP_TOKEN": "test-cdp-token",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        cfg = get_llm_config(provider="caiis")
+        _assert(
+            cfg.base_url == "https://legacy.example.com/v1",
+            "CAIIS_BASE_URL should take precedence over parts",
+        )
+
+
+def test_detect_default_provider() -> None:
+    env = {
+        "CAIIS_BASE_URL": "https://caiis.example.com/namespaces/serving-default/endpoints/demo/v1",
+        "CAIIS_MODEL": "nvidia/nemotron-3-nano",
+        "CDP_TOKEN": "test-cdp-token",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        _assert(is_caiis_configured(), "CAIIS should be configured with real base URL")
+        _assert(
+            detect_default_provider() == "caiis",
+            "default provider should be caiis when CAIIS_BASE_URL is configured",
+        )
+    with patch.dict(os.environ, {**env, "DEFAULT_LLM_PROVIDER": "openai"}, clear=True):
+        _assert(
+            detect_default_provider() == "openai",
+            "DEFAULT_LLM_PROVIDER=openai should override auto-detect",
+        )
+    with patch.dict(os.environ, {**env, "DEFAULT_LLM_PROVIDER": "caiis"}, clear=True):
+        _assert(
+            detect_default_provider() == "caiis",
+            "DEFAULT_LLM_PROVIDER=caiis should select caiis",
+        )
+
+
+def test_get_llm_config_caiis() -> None:
+    env = {
+        "CAIIS_BASE_URL": "https://caiis.example.com/v1",
+        "CAIIS_MODEL": "nvidia/nemotron-3-nano",
+        "CAIIS_MAX_TOKENS": "1024",
+        "CDP_TOKEN": "test-cdp-token",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        cfg = get_llm_config(provider="caiis")
+        _assert(cfg.provider == "caiis", "provider should be caiis")
+        _assert(cfg.base_url == env["CAIIS_BASE_URL"], "base_url should match CAIIS_BASE_URL")
+        _assert(cfg.api_key == env["CDP_TOKEN"], "api_key should use CDP_TOKEN")
+        _assert(
+            cfg.model == env["CAIIS_MODEL"],
+            "model should match CAIIS_MODEL",
+        )
+        _assert(cfg.max_tokens == 1024, "max_tokens should default from CAIIS_MAX_TOKENS")
+
+
+def test_create_crewai_llm_routes_openai_client() -> None:
+    cfg = default_caiis_config()
+    cfg = type(cfg)(
+        provider="caiis",
+        model="nvidia/nemotron-3-nano",
+        base_url="https://caiis.example.com/v1",
+        api_key="test-cdp-token",
+        temperature=cfg.temperature,
+        max_tokens=1024,
+    )
+    llm = create_crewai_llm(cfg)
+    _assert(
+        llm.__class__.__name__ == "OpenAICompletion",
+        f"expected OpenAICompletion, got {llm.__class__.__name__}",
+    )
+    _assert(getattr(llm, "provider", None) == "openai", "CrewAI provider should be openai")
+    _assert(
+        getattr(llm, "base_url", None) == "https://caiis.example.com/v1",
+        "base_url should point at CAIIS",
+    )
+    _assert(getattr(llm, "api_key", None) == "test-cdp-token", "api_key should be CDP token")
+    _assert(
+        getattr(llm, "model", None) == "nvidia/nemotron-3-nano",
+        "model name should be preserved for CAIIS",
+    )
+    _assert(getattr(llm, "max_tokens", None) == 1024, "max_tokens should be passed to CrewAI LLM")
+
+
+def test_default_llm_config_prefers_caiis_when_configured() -> None:
+    env = {
+        "CAIIS_BASE_URL": "https://caiis.example.com/v1",
+        "OPENAI_API_KEY": "sk-openai-key",
+        "CDP_TOKEN": "test-cdp-token",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        cfg = default_llm_config()
+        _assert(
+            cfg.provider == "caiis",
+            "default_llm_config should pick caiis when CAIIS_BASE_URL is set",
+        )
+        _assert(cfg.base_url == env["CAIIS_BASE_URL"], "default should use CAIIS base URL")
+
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-openai-key"}, clear=True):
+        cfg = default_llm_config()
+        _assert(cfg.provider == "openai", "default_llm_config should use openai without CAIIS")
+        _assert(cfg.model == "gpt-6.1-sol", "default should use gpt-6.1-sol")
+
+    with patch.dict(os.environ, {**env, "DEFAULT_LLM_PROVIDER": "openai"}, clear=True):
+        cfg = default_llm_config()
+        _assert(
+            cfg.provider == "openai",
+            "DEFAULT_LLM_PROVIDER=openai should override CAIIS auto-detect",
+        )
+
+
+def test_guardrails_server_config_patch() -> None:
+    from src.guardrails.config_composer import prepare_server_config_from_env
+
+    env = {
+        "MAIN_MODEL_BASE_URL": "https://caiis.example.com/v1",
+        "MAIN_MODEL_NAME": "nvidia/nemotron-3-nano",
+        "OPENAI_API_KEY": "test-cdp-token",
+        "CAIIS_MAX_TOKENS": "1024",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        runtime = prepare_server_config_from_env(ROOT / "guardrails" / "base")
+        import yaml
+
+        config_path = runtime / "base" / "config.yml"
+        _assert(config_path.exists(), "patched config should live at <root>/base/config.yml")
+        with config_path.open() as f:
+            config = yaml.safe_load(f)
+        for model in config["models"]:
+            if model.get("engine") != "openai":
+                continue
+            params = model.get("parameters", {})
+            _assert(
+                params.get("base_url") == env["MAIN_MODEL_BASE_URL"],
+                f"{model['type']} model should use MAIN_MODEL_BASE_URL",
+            )
+            _assert(
+                model.get("model") == env["MAIN_MODEL_NAME"],
+                f"{model['type']} model name should be patched",
+            )
+            _assert(
+                params.get("max_tokens") == 1024,
+                f"{model['type']} model should include max_tokens from CAIIS_MAX_TOKENS",
+            )
+
+
+def main() -> int:
+    tests = [
+        test_resolve_caiis_model_from_org_and_name,
+        test_resolve_caiis_model_full_takes_precedence,
+        test_resolve_llama_guard_model_from_org_and_name,
+        test_resolve_llama_guard_model_full_takes_precedence,
+        test_get_llm_config_caiis_from_model_parts,
+        test_build_caiis_base_url_from_parts,
+        test_caiis_base_url_overrides_parts,
+        test_detect_default_provider,
+        test_get_llm_config_caiis,
+        test_create_crewai_llm_routes_openai_client,
+        test_default_llm_config_prefers_caiis_when_configured,
+        test_guardrails_server_config_patch,
+    ]
+    for test in tests:
+        name = test.__name__
+        print(f"PASS {name}")
+        test()
+    print(f"\nAll {len(tests)} CAIIS config checks passed.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
