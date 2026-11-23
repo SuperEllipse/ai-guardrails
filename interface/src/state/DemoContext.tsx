@@ -34,8 +34,6 @@ interface DemoState {
   setRegion: (region: string) => void;
   idVersion: string;
   setIdVersion: (version: string) => void;
-  allRegions: boolean;
-  setAllRegions: (on: boolean) => void;
   pendingRun: string;
   requestRun: (exampleId: string) => void;
   takePendingRun: () => string;
@@ -56,7 +54,6 @@ export function DemoProvider({ initial, children }: { initial: DemoConfig; child
   const [results, setResults] = useState<Record<string, UseCaseResult>>({});
   const [region, setRegionState] = useState(initial.regions.find((item) => item.id === "US")?.id || initial.regions[0]?.id || "US");
   const [idVersion, setIdVersionState] = useState(storedVersion);
-  const [allRegions, setAllRegionsState] = useState(false);
   const [pendingRun, setPendingRun] = useState("");
   const [auditTarget, setAuditTarget] = useState("");
   const [logCount, setLogCount] = useState(initial.log_count);
@@ -121,11 +118,6 @@ export function DemoProvider({ initial, children }: { initial: DemoConfig; child
           // Storage unavailable: the choice still applies for this page view.
         }
       },
-      allRegions,
-      setAllRegions: (on) => {
-        setAllRegionsState(on);
-        setResults({});
-      },
       pendingRun,
       requestRun: (exampleId) => {
         setPendingRun(exampleId);
@@ -146,7 +138,7 @@ export function DemoProvider({ initial, children }: { initial: DemoConfig; child
       setupDirty,
       setSetupDirty,
     }),
-    [config, refreshConfig, probes, probing, checkStatus, results, region, idVersion, allRegions, pendingRun, auditTarget, logCount, refreshLogCount, setupDirty],
+    [config, refreshConfig, probes, probing, checkStatus, results, region, idVersion, pendingRun, auditTarget, logCount, refreshLogCount, setupDirty],
   );
 
   return <DemoContext.Provider value={value}>{children}</DemoContext.Provider>;

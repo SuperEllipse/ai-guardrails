@@ -26,8 +26,8 @@ export function StartHere() {
           guardrails, and how compliance can close a gap by writing a new policy.
         </p>
         <p className="hint">
-          Some tests use a scripted risky draft so the check always has something to catch. The real AI answer is shown
-          underneath.
+          Some output tests use a scripted risky draft, or tell the answer model to answer badly, so the check always has
+          something to catch. Both are labelled, and the normal AI answer is shown underneath.
         </p>
       </section>
 
@@ -57,9 +57,8 @@ export function StartHere() {
           <li>Run <strong>Branch hours</strong> with Try a normal question. Normal questions still get normal answers.</li>
           <li>Run <strong>Mutual fund</strong>. Advice is stopped before the assistant even writes a reply.</li>
           <li>
-            Run <strong>Biased reply</strong>. Even if the AI drafts something risky, the output check catches it.
-            This test uses a scripted risky draft so the check always has something to catch. The real AI answer is
-            shown underneath it.
+            Run <strong>Biased reply</strong>. For this test the answer model is told to answer with age and gender
+            bias, and the output check stops that draft. The normal AI answer is shown underneath it.
           </li>
           <li>Run <strong>New account transfer</strong>. The payment is stopped and the balance does not change.</li>
           <li>Run <strong>Refund promise</strong>. If no custom policy is live, it gets through: a gap. Press <strong>Close this gap</strong>.</li>

@@ -7,6 +7,14 @@ define subflow check regional pii on input
     bot refuse to respond
     stop
 
+# NeMo's PII extension (Presidio and spaCy) finds names, places, and crypto wallets.
+define subflow check nemo pii on input
+  $response = execute detect_sensitive_data(source="input", text=$user_message)
+  if $response.is_blocked
+    execute record_sensitive_data(stage="input")
+    bot refuse to respond
+    stop
+
 define subflow check written rules on input
   $blocked = execute check_written_rules(text=$user_message, stage="input")
   if $blocked
@@ -16,5 +24,12 @@ define subflow check written rules on input
 define subflow check regional pii on output
   $blocked = execute screen_pii(text=$bot_message, stage="output")
   if $blocked
+    bot refuse to respond
+    stop
+
+define subflow check nemo pii on output
+  $response = execute detect_sensitive_data(source="output", text=$bot_message)
+  if $response.is_blocked
+    execute record_sensitive_data(stage="output")
     bot refuse to respond
     stop

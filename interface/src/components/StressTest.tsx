@@ -10,18 +10,17 @@ interface ShownPrompt extends RedPrompt {
   actual?: string;
 }
 
-function expectedFor(attack: AttackPrompt, version: string, allRegions: boolean): string {
+function expectedFor(attack: AttackPrompt, version: string): string {
   if (version === "v3" && attack.expected_v3) return attack.expected_v3;
-  if (allRegions && attack.expected_all_regions) return attack.expected_all_regions;
   return attack.expected || "allow";
 }
 
-function previewPrompts(attacks: AttackPrompt[], picked: string[], region: string, version: string, allRegions: boolean, customDeployed: boolean): ShownPrompt[] {
+function previewPrompts(attacks: AttackPrompt[], picked: string[], region: string, version: string, customDeployed: boolean): ShownPrompt[] {
   return attacks
     .filter((attack) => {
       if (!picked.includes(attack.policy)) return false;
       if (attack.policy === "redress_liability" && !customDeployed) return false;
-      if (attack.regions && attack.regions.length > 0 && !allRegions && !attack.regions.includes(region)) return false;
+      if (attack.regions && attack.regions.length > 0 && !attack.regions.includes(region)) return false;
       return true;
     })
     .map((attack) => ({
@@ -30,7 +29,7 @@ function previewPrompts(attacks: AttackPrompt[], picked: string[], region: strin
       stage: attack.stage || "",
       text: attack.text || "",
       user: attack.user || "",
-      expected: expectedFor(attack, version, allRegions),
+      expected: expectedFor(attack, version),
       status: "waiting" as const,
     }));
 }
@@ -46,7 +45,6 @@ export function StressTest() {
   const [picked, setPicked] = useState<string[]>(config.policies.map((item) => item.id));
   const [region, setRegion] = useState(liveRegion);
   const [version, setVersion] = useState(idVersion);
-  const [allRegions, setAllRegions] = useState(false);
   const [attacks, setAttacks] = useState<AttackPrompt[]>([]);
   const [prompts, setPrompts] = useState<ShownPrompt[]>([]);
   const [cases, setCases] = useState<RedCase[]>([]);
@@ -69,7 +67,7 @@ export function StressTest() {
 
   const allIds = config.policies.map((item) => item.id);
   const allOn = allIds.length > 0 && allIds.every((id) => picked.includes(id));
-  const shown = busy || prompts.length > 0 ? prompts : previewPrompts(attacks, picked, region, version, allRegions, config.custom_rule.deployed);
+  const shown = busy || prompts.length > 0 ? prompts : previewPrompts(attacks, picked, region, version, config.custom_rule.deployed);
 
   const applyEvent = (event: RedEvent) => {
     if (event.type === "start") {
@@ -98,9 +96,9 @@ export function StressTest() {
     setError("");
     setCases([]);
     setRunId("");
-    setPrompts(previewPrompts(attacks, picked, region, version, allRegions, config.custom_rule.deployed));
+    setPrompts(previewPrompts(attacks, picked, region, version, config.custom_rule.deployed));
     try {
-      await demoApi.streamRedteam(picked, region, version, allRegions, applyEvent);
+      await demoApi.streamRedteam(picked, region, version, applyEvent);
       setRuns(await demoApi.runs());
     } catch (err) {
       setError(err instanceof Error ? err.message : "The run failed.");
@@ -208,10 +206,6 @@ export function StressTest() {
                 <option key={id} value={id}>{label}</option>
               ))}
             </select>
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={allRegions} onChange={(e) => setAllRegions(e.target.checked)} disabled={busy} />
-            Check all regions
           </label>
           <button className="btn btn-primary" type="button" onClick={run} disabled={busy || picked.length === 0}>
             {busy ? `Running ${cases.length} of ${total}…` : "Run stress test"}

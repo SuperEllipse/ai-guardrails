@@ -9,8 +9,9 @@ from typing import Any
 import pytest
 
 from src.api import usecase_runner
-from src.api.demo_examples import EXAMPLES, expected_for
+from src.api.demo_examples import EXAMPLES, draft_for, expected_for, query_for
 from src.guardrails import audit_log, connection, pii_screen, written_rules
+from src.simulation import redteam
 
 
 def _example(example_id: str) -> dict[str, Any]:
@@ -79,7 +80,7 @@ def _stub_guard(monkeypatch: pytest.MonkeyPatch, *, output_blocked: bool, agents
 
 def test_scripted_draft_has_live_answer(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _stub_guard(monkeypatch, output_blocked=True)
-    result = _run(usecase_runner.run_usecase(_example("fair"), region="US", profile_version="v1", all_regions=False))
+    result = _run(usecase_runner.run_usecase(_example("pii-leak"), region="US", profile_version="v1", all_regions=False))
     assert result["draft_source"] == "scripted"
     assert result["path"] == "output_caught"
     assert result["outcome"] == "as_expected"
@@ -87,6 +88,25 @@ def test_scripted_draft_has_live_answer(monkeypatch: pytest.MonkeyPatch) -> None
     assert result["live_answer"]["output"]["blocked"] is False
     assert "output:Live reply" in calls
     assert set(result["timings_ms"]) >= {"input", "output", "total"}
+
+
+def test_test_prompt_draft_uses_the_example_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _stub_guard(monkeypatch, output_blocked=True)
+    prompts: list[str] = []
+
+    async def fake_test_prompt(query: str, system_prompt: str) -> str:
+        prompts.append(system_prompt)
+        return "Biased reply"
+
+    monkeypatch.setattr(usecase_runner, "_draft_from_test_prompt", fake_test_prompt)
+    example = _example("fair")
+    result = _run(usecase_runner.run_usecase(example, region="US", profile_version="v1", all_regions=False))
+    assert prompts == [example["draft_prompt"]]
+    assert result["draft_source"] == "test_prompt"
+    assert result["unguarded_response"] == "Biased reply"
+    assert result["path"] == "output_caught"
+    assert result["live_answer"]["text"] == "Live reply"
+    assert "output:Biased reply" in calls
 
 
 def test_gap_comes_from_the_real_verdict(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,11 +129,27 @@ def test_answer_model_error_is_an_error(monkeypatch: pytest.MonkeyPatch) -> None
     assert "did not answer" in result["error"]
 
 
-def test_expected_for_region_and_version() -> None:
-    nric = _example("pii-nric")
-    assert expected_for(nric, region="SG", profile_version="v1", all_regions=False) == "block"
-    assert expected_for(nric, region="US", profile_version="v1", all_regions=False) == "allow"
-    assert expected_for(nric, region="SG", profile_version="v3", all_regions=False) == "allow"
+def test_national_id_matches_the_region() -> None:
+    national_id = _example("pii-national-id")
+    assert "SSN" in query_for(national_id, "US")
+    assert "NRIC" in query_for(national_id, "SG")
+    for region in ("US", "SG", "IN", "AU", "EU"):
+        for version in ("v1", "v2", "v3"):
+            assert expected_for(national_id, region=region, profile_version=version, all_regions=False) == "block"
+            assert pii_screen.screen_text(query_for(national_id, region), region, version, False)["blocked"]
+
+
+def test_personal_data_prompts_differ_by_region() -> None:
+    for example_id in ("pii-national-id", "pii-name-address"):
+        example = _example(example_id)
+        assert len({query_for(example, region) for region in ("US", "SG", "IN", "AU", "EU")}) == 5
+    leak = _example("pii-leak")
+    assert len({draft_for(leak, region) for region in ("US", "SG", "IN", "AU", "EU")}) == 5
+    ids = [case for case in redteam.load_attacks() if case.get("policy") == "sensitive_data" and case.get("regions")]
+    for region in ("US", "SG", "IN", "AU", "EU"):
+        mine = [case for case in ids if region in case["regions"]]
+        assert len(mine) == 1 and mine[0]["expected"] == "block"
+        assert pii_screen.screen_text(mine[0]["text"], region, "v3", False)["blocked"]
 
 
 def test_audit_log_migrates_old_table(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:

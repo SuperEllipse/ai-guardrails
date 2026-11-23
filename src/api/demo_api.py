@@ -124,6 +124,14 @@ def _reason_text(rule: Any, message: Any) -> str:
 
 
 def _decisive_judge(result: dict[str, Any]) -> dict[str, Any] | None:
+    """The judge of the check that decided; none when a pattern, NeMo's PII extension, or the ledger did."""
+    path = result.get("path")
+    if path in ("payment_blocked", "payment_allowed"):
+        return None
+    if path == "input_blocked" or result.get("error_step") == "input":
+        return (result.get("input") or {}).get("judge")
+    if path == "output_caught" or result.get("error_step") == "output":
+        return (result.get("output") or {}).get("judge")
     for key in ("output", "input"):
         judge = (result.get(key) or {}).get("judge")
         if judge:

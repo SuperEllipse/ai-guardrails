@@ -91,8 +91,6 @@ def _judge_label(judge: dict[str, Any] | None) -> str:
 def _expected(case: dict[str, Any], profile_version: str, all_regions: bool) -> str:
     if profile_version == "v3" and case.get("expected_v3"):
         return str(case["expected_v3"])
-    if all_regions and case.get("expected_all_regions"):
-        return str(case["expected_all_regions"])
     return str(case.get("expected") or "allow")
 
 

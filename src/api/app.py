@@ -42,7 +42,8 @@ npm run build</pre>
 _DEPENDENCIES = {
     "nemoguardrails": "NeMo Guardrails",
     "crewai": "CrewAI",
-    "presidio_analyzer": "Presidio (PII detection)",
+    "presidio_analyzer": "Presidio (NeMo PII extension)",
+    "en_core_web_lg": "spaCy model en_core_web_lg (NeMo PII extension)",
 }
 
 

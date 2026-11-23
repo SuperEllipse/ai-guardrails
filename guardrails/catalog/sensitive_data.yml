@@ -1,0 +1,17 @@
+# NeMo Guardrails PII extension (sensitive data detection). NeMo runs Presidio with the
+# spaCy en_core_web_lg model inside the guard server; the regional patterns run first.
+# Entity names: https://microsoft.github.io/presidio/supported_entities/
+#
+# DATE_TIME is left out: it also matches "today" and "this month" in ordinary questions.
+# LOCATION is checked on input only: answers often name a city or country.
+input:
+  score_threshold: 0.4
+  entities:
+    - PERSON
+    - LOCATION
+    - CRYPTO
+output:
+  score_threshold: 0.4
+  entities:
+    - PERSON
+    - CRYPTO

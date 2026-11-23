@@ -25,14 +25,25 @@ if TYPE_CHECKING:
 
 
 def init(rails: LLMRails) -> None:
-    from src.guardrails.demo_actions import check_transfer_gate, check_written_rules, screen_pii
+    from src.guardrails.demo_actions import (
+        check_transfer_gate,
+        check_written_rules,
+        record_sensitive_data,
+        screen_pii,
+    )
     from src.guardrails.output_parsers import self_check_yes_no
 
     rails.register_action(screen_pii, name="screen_pii")
+    rails.register_action(record_sensitive_data, name="record_sensitive_data")
     rails.register_action(check_written_rules, name="check_written_rules")
     rails.register_action(check_transfer_gate, name="check_transfer_gate")
     rails.register_output_parser(self_check_yes_no, "self_check_yes_no")
 '''
+
+
+def _load_yaml(path: Path) -> dict:
+    with path.open() as handle:
+        return yaml.safe_load(handle) or {}
 
 
 def build_active_config() -> Path:
@@ -64,15 +75,18 @@ def build_active_config() -> Path:
             }
         ],
         "rails": {
+            "config": {"sensitive_data_detection": _load_yaml(CATALOG / "sensitive_data.yml")},
             "input": {
                 "flows": [
                     "check regional pii on input",
+                    "check nemo pii on input",
                     "check written rules on input",
                 ]
             },
             "output": {
                 "flows": [
                     "check regional pii on output",
+                    "check nemo pii on output",
                     "check written rules on output",
                 ]
             },

@@ -1,8 +1,11 @@
 # Secrets and local environment (never commit)
 .env
 .env.local
-!.env.example
 !.env.caiis.example
+!.env.openai.example
+.git-credentials
+.gitconfig
+.bashrc
 
 # Python
 __pycache__/

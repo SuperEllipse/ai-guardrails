@@ -1,8 +1,9 @@
 """Run one live risk test. Every verdict comes from the guard server.
 
-The draft is the agents' live answer, or for `scripted_draft` examples a fixed risky
-draft that is labelled as scripted. Scripted tests also call the agents live in the
-same request and send that real answer through the output check.
+The draft is the agents' live answer; for `scripted_draft` examples a fixed risky draft
+that is labelled as scripted; or for `test_prompt_draft` examples a real draft from the
+answer model told to answer badly, labelled as such. These tests also call the agents
+live in the same request and send that real answer through the output check.
 """
 
 from __future__ import annotations
@@ -11,7 +12,9 @@ import asyncio
 import time
 from typing import Any
 
-from src.api.demo_examples import expected_for
+import httpx
+
+from src.api.demo_examples import draft_for, expected_for, query_for
 from src.guardrails.connection import load_connection
 from src.guardrails.guard_client import check_messages, check_transfer
 from src.guardrails.written_rules import custom_is_deployed
@@ -39,6 +42,30 @@ async def _draft_from_agents(query: str) -> str:
     return text
 
 
+async def _draft_from_test_prompt(query: str, system_prompt: str) -> str:
+    """One call to the answer model with the example's test instructions."""
+    cfg = _llm_config()
+    body: dict[str, Any] = {
+        "model": cfg.model,
+        "temperature": 0.7,
+        "max_tokens": 300,
+        "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": query}],
+        # Reasoning models otherwise put their thinking in the reply.
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    headers = {"Authorization": f"Bearer {cfg.api_key or 'not-needed'}"}
+    async with httpx.AsyncClient(timeout=90) as client:
+        response = await client.post(f"{cfg.base_url}/chat/completions", headers=headers, json=body)
+        if response.status_code in (400, 500):
+            body.pop("chat_template_kwargs")
+            response = await client.post(f"{cfg.base_url}/chat/completions", headers=headers, json=body)
+        response.raise_for_status()
+        text = str(response.json()["choices"][0]["message"].get("content") or "")
+    if not text.strip():
+        raise RuntimeError("The answer model returned an empty reply.")
+    return text.strip()
+
+
 def _ms(started: float) -> int:
     return round((time.perf_counter() - started) * 1000)
 
@@ -60,9 +87,8 @@ async def _guard(stage: str, text: str, query: str, settings: dict[str, Any]) ->
     return info, _ms(started)
 
 
-async def _live_answer(example: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
+async def _live_answer(example: dict[str, Any], query: str, settings: dict[str, Any]) -> dict[str, Any]:
     """The real answer to the same message, with its own output check."""
-    query = example["query"]
     text, error, agents_ms = await _agents(query)
     result: dict[str, Any] = {
         "text": text,
@@ -89,14 +115,24 @@ async def run_usecase(
     all_regions: bool,
 ) -> dict[str, Any]:
     started = time.perf_counter()
-    query = example["query"]
-    scripted = example.get("kind") == "scripted_draft"
+    query = query_for(example, region)
+    kind = example.get("kind")
+    scripted = kind == "scripted_draft"
+    test_prompt = kind == "test_prompt_draft"
     settings = {"region": region, "profile_version": profile_version, "all_regions": all_regions}
     timings: dict[str, int] = {}
 
     async def draft() -> tuple[str, str]:
         if scripted:
-            return str(example["draft"]), ""
+            return draft_for(example, region), ""
+        if test_prompt:
+            draft_started = time.perf_counter()
+            try:
+                return await _draft_from_test_prompt(query, str(example["draft_prompt"])), ""
+            except Exception as exc:
+                return "", f"The answer model did not answer: {exc}"
+            finally:
+                timings["agents"] = _ms(draft_started)
         text, error, agents_ms = await _agents(query)
         timings["agents"] = agents_ms
         return text, error
@@ -107,7 +143,7 @@ async def run_usecase(
     (input_info, input_ms), (draft_text, draft_error), live = await asyncio.gather(
         _guard("input", query, "", settings),
         draft(),
-        _live_answer(example, settings) if scripted else no_live(),
+        _live_answer(example, query, settings) if scripted or test_prompt else no_live(),
     )
     timings["input"] = input_ms
 
@@ -171,7 +207,8 @@ async def run_usecase(
         "stage": example.get("stage") or "input",
         "custom": bool(example.get("custom")),
         "query": query,
-        "draft_source": "scripted" if scripted else "live",
+        "draft_source": "scripted" if scripted else "test_prompt" if test_prompt else "live",
+        "draft_prompt": str(example.get("draft_prompt") or ""),
         "unguarded_response": draft_text,
         "unguarded_error": draft_error,
         "guarded_response": guarded,

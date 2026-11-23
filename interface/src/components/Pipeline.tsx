@@ -1,5 +1,5 @@
 import type { CheckInfo, UseCaseResult } from "../api/demo";
-import { seconds } from "../copy";
+import { checkLabel, seconds } from "../copy";
 import type { Playback } from "../state/usePlayback";
 
 type StepState = "pending" | "checking" | "passed" | "stopped" | "risky" | "skipped" | "error";
@@ -41,7 +41,7 @@ function checkState(info: CheckInfo | undefined): StepState {
 
 function checkNote(info: CheckInfo | undefined): string {
   if (!info || info.error) return "";
-  return info.model_call ? "" : "Pattern check, no model";
+  return info.model_call ? "" : checkLabel(info);
 }
 
 /** The six steps in execution order, from what the backend returned. */
@@ -62,12 +62,18 @@ export function buildSteps(result: UseCaseResult): Step[] {
   const notes: Record<string, string> = {
     input: checkNote(result.input),
     output: outputRan ? checkNote(result.output) : "",
-    agents: result.draft_source === "scripted" && !stoppedAtInput ? "Scripted test draft" : "",
+    agents: stoppedAtInput
+      ? ""
+      : result.draft_source === "scripted"
+        ? "Scripted test draft"
+        : result.draft_source === "test_prompt"
+          ? "Answer model with a test prompt"
+          : "",
     payment: payment && !stoppedAtInput ? "Demo ledger rule, no model" : "",
   };
   const ms: Record<string, number | undefined> = {
     input: result.timings_ms.input,
-    agents: result.draft_source === "live" ? result.timings_ms.agents : undefined,
+    agents: result.draft_source === "scripted" ? undefined : result.timings_ms.agents,
     payment: result.timings_ms.payment,
     output: result.timings_ms.output,
   };

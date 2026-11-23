@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.guardrails.demo_state import scope
+from src.guardrails.demo_state import record, scope
 from src.guardrails.pii_screen import screen_text
 from src.guardrails.transfer_gate import decide_transfer
 from src.guardrails.written_rules import judge_text
@@ -19,6 +19,24 @@ async def screen_pii(text: str = "", stage: str = "input", **kwargs: Any) -> boo
         bool(info.get("all_regions")),
     )
     return bool(result["blocked"])
+
+
+async def record_sensitive_data(stage: str = "input", **kwargs: Any) -> bool:
+    """Record a block by NeMo's PII extension, which reports only that it found something."""
+    record(
+        {
+            "blocked": True,
+            "rewrite": False,
+            "message": "I can't continue while this message contains personal details.",
+            "rule": "sensitive_data",
+            "rule_name": "Sensitive data",
+            "model_call": False,
+            "label": "NeMo PII extension (Presidio), no LLM",
+            "detector": "nemo_pii",
+            "entities": [],
+        }
+    )
+    return True
 
 
 async def check_written_rules(text: str = "", stage: str = "input", **kwargs: Any) -> bool:

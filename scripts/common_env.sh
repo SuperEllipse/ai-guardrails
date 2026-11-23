@@ -10,7 +10,7 @@ export_pythonpath() {
   fi
 }
 
-# Load .env if present (never commit .env — use .env.example templates)
+# Load .env if present (never commit .env — use the .env.caiis.example or .env.openai.example template)
 load_env_file() {
   local env_file="$1"
   if [[ -f "${env_file}" ]]; then

@@ -1,0 +1,137 @@
+name: AI Compliance Guard for Banking
+description: >-
+  A generative-AI banking assistant guarded by NVIDIA NeMo Guardrails. Every customer
+  message, AI draft, and payment is checked by a guard server, and the web app shows the
+  same request with and without guardrails, step by step. Compliance teams can write a
+  policy in plain English, test it with a safety judge, and deploy it without a code
+  release. Models run on Cloudera AI Inference Service.
+author: Cloudera
+date: "2026-11-23"
+specification_version: 1.0
+prototype_version: 1.0
+
+environment_variables:
+  CAIIS_HOST:
+    default: ""
+    description: >-
+      Answer model: Cloudera AI Inference Service host name, for example
+      ml-xxxxxxxx-xxx.example.cloudera.site.
+    required: true
+  CAIIS_NAMESPACE:
+    default: "serving-default"
+    description: "Answer model: serving namespace."
+    required: true
+  CAIIS_ENDPOINT:
+    default: ""
+    description: "Answer model: endpoint name."
+    required: true
+  CAIIS_API_PATH:
+    default: "openai"
+    description: >-
+      Answer model: path before /v1. Use 'openai', or 'none' when the endpoint's address
+      ends in /endpoints/<name>/v1.
+    required: true
+  CAIIS_MODEL_ORG:
+    default: "nvidia"
+    description: "Answer model id, the part before the slash."
+    required: true
+  CAIIS_MODEL_NAME:
+    default: ""
+    description: "Answer model id, the part after the slash, for example nemotron-3-super-120b-a12b."
+    required: true
+  CAIIS_MAX_TOKENS:
+    default: "1024"
+    description: "Answer model: maximum tokens per reply. Reasoning models need 1024 or more."
+    required: false
+  DEFAULT_LLM_PROVIDER:
+    default: "caiis"
+    description: "Model provider. Keep 'caiis' for Cloudera AI Inference Service."
+    required: true
+  DEFAULT_SAFETY_MODE:
+    default: "self_check"
+    description: >-
+      Judge for written rules: 'self_check' (the answer model judges), 'llama_guard'
+      (fill in the Llama Guard settings), or 'nim' (NVIDIA NIM, set NVIDIA_API_KEY).
+    required: true
+  LLAMA_GUARD_HOST:
+    default: ""
+    description: "Optional Llama Guard judge: host name. Leave empty when not used."
+    required: false
+  LLAMA_GUARD_NAMESPACE:
+    default: "serving-default"
+    description: "Optional Llama Guard judge: serving namespace."
+    required: false
+  LLAMA_GUARD_ENDPOINT:
+    default: ""
+    description: "Optional Llama Guard judge: endpoint name."
+    required: false
+  LLAMA_GUARD_API_PATH:
+    default: "openai"
+    description: "Optional Llama Guard judge: path before /v1."
+    required: false
+  LLAMA_GUARD_MODEL_ORG:
+    default: "meta-llama"
+    description: "Optional Llama Guard model id, the part before the slash."
+    required: false
+  LLAMA_GUARD_MODEL_NAME:
+    default: "Llama-Guard-3-8B"
+    description: "Optional Llama Guard model id, the part after the slash."
+    required: false
+  NVIDIA_API_KEY:
+    default: ""
+    description: "Optional token for the NVIDIA NIM judge."
+    required: false
+  GUARDRAILS_PORT:
+    default: "8001"
+    description: >-
+      Guard server port when both servers run in one session. The Applications ignore it.
+    required: false
+
+runtimes:
+  - editor: PBJ Workbench
+    kernel: Python 3.12
+    edition: Standard
+
+tasks:
+  - type: run_session
+    name: Install dependencies
+    script: scripts/install_dependencies.py
+    short_summary: Installing the Python dependencies.
+    long_summary: >-
+      Installs requirements.txt with the runtime's Python, then the spaCy model
+      en_core_web_lg (about 560 MB) that NeMo Guardrails' PII extension requires. The
+      Applications use the same runtime, so the compiled packages match.
+    kernel: python3
+    cpu: 2
+    memory: 8
+
+  - type: start_application
+    name: NeMo Guardrails Server
+    entity_label: guardrails-server
+    subdomain: nemo-guardrails
+    static_subdomain: true
+    script: applications/guardrails_server_app.py
+    short_summary: Starting the guard server.
+    long_summary: >-
+      Starts the NeMo Guardrails server that runs the input, output, and payment checks.
+      The web app calls it server to server, so it allows unauthenticated access.
+    kernel: python3
+    cpu: 2
+    memory: 8
+    bypass_authentication: true
+
+  - type: start_application
+    name: Guardrails for Banking Demo
+    entity_label: banking-demo
+    subdomain: banking-guardrails-demo
+    static_subdomain: true
+    script: applications/web_app.py
+    short_summary: Starting the web app.
+    long_summary: >-
+      Starts the web app. It reaches the guard server at the nemo-guardrails subdomain of
+      this workbench. Open this Application to use the demo.
+    kernel: python3
+    cpu: 2
+    memory: 8
+    environment_variables:
+      GUARDRAILS_SUBDOMAIN: nemo-guardrails

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { demoApi, type UseCaseResult } from "../api/demo";
-import { decisiveJudge, ID_VERSION_LABELS, judgedBy, judgeName, plural, verdictFor } from "../copy";
+import { checkLabel, decidingCheck, decisiveJudge, ID_VERSION_LABELS, judgedBy, judgeName, plural, verdictFor } from "../copy";
 import { navigate, useDemo } from "../state/DemoContext";
 import { usePlayback } from "../state/usePlayback";
 import { Pipeline } from "./Pipeline";
@@ -13,7 +13,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(r
 
 export function LiveRiskTest() {
   const demo = useDemo();
-  const { config, results, setResult, region, idVersion, allRegions, refreshLogCount } = demo;
+  const { config, results, setResult, region, idVersion, refreshLogCount } = demo;
   const [selected, setSelected] = useState("");
   const [running, setRunning] = useState("");
   const [batch, setBatch] = useState(false);
@@ -48,11 +48,11 @@ export function LiveRiskTest() {
       setRequestError("");
       setRunResult(null);
       setFailed(false);
-      setRunQuery(example.query);
+      setRunQuery(example.queries?.[region] || example.query);
       setRunId((id) => id + 1);
       let result: UseCaseResult | null = null;
       try {
-        result = await demoApi.usecase(exampleId, region, idVersion, allRegions);
+        result = await demoApi.usecase(exampleId, region, idVersion);
         setResult(result);
         setRunResult(result);
       } catch (err) {
@@ -65,7 +65,7 @@ export function LiveRiskTest() {
       await waitDone();
       return result;
     },
-    [examples, region, idVersion, allRegions, setResult, refreshLogCount, waitDone],
+    [examples, region, idVersion, setResult, refreshLogCount, waitDone],
   );
 
   const startedPending = useRef("");
@@ -184,10 +184,6 @@ export function LiveRiskTest() {
                       ))}
                     </select>
                   </label>
-                  <label className="check">
-                    <input type="checkbox" checked={allRegions} onChange={(e) => demo.setAllRegions(e.target.checked)} disabled={busy || batch} />
-                    Check all regions
-                  </label>
                 </div>
               )}
             </RiskAreaCard>
@@ -241,7 +237,9 @@ export function LiveRiskTest() {
             {decisive && <p className="micro judged">{judgedBy(decisive)}</p>}
             {shownResult && !decisive && shownResult.outcome !== "error" && (
               <p className="micro judged">
-                {shownResult.payment ? "Decided by the demo ledger rule, no model" : "Decided by the pattern check, no model"}
+                {shownResult.payment
+                  ? "Decided by the demo ledger rule, no model"
+                  : `Decided by: ${checkLabel(decidingCheck(shownResult))}`}
               </p>
             )}
           </section>

@@ -24,5 +24,6 @@ rules:
     on_violation: block
     text: |
       Do not use abusive or biased language.
+      Do not discourage, refuse, or talk down to a customer because of their age, gender, marital status, race, religion, nationality, or disability.
       Do not sound certain about a lending or complaint outcome.
       Do not invent rates, balances, or facts.

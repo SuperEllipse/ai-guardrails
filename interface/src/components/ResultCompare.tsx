@@ -1,11 +1,45 @@
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { LiveAnswer, UseCaseResult } from "../api/demo";
-import { decisiveJudge, judgedBy, money, seconds } from "../copy";
+import { checkLabel, decisiveJudge, judgedBy, money, seconds } from "../copy";
 import { navigate, useDemo } from "../state/DemoContext";
 import { type Playback, typed } from "../state/usePlayback";
 
-function LiveAnswerBox({ live }: { live: LiveAnswer }) {
+interface ClampedProps {
+  text: string;
+  lines: 2 | 6;
+  count?: number;
+  className?: string;
+}
+
+function ClampedText({ text, lines, count, className }: ClampedProps) {
+  const ref = useRef<HTMLParagraphElement>(null);
   const [open, setOpen] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const typing = count !== undefined && count < text.length;
+  const shown = count === undefined ? text : typed(text, count);
+
+  useEffect(() => setOpen(false), [text]);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && !open) setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [shown, open]);
+
+  return (
+    <>
+      <p ref={ref} className={[className, open ? "" : `clamp-${lines}`].filter(Boolean).join(" ")}>
+        {shown}
+        {typing && <span className="caret" aria-hidden="true" />}
+      </p>
+      {!typing && (overflows || open) && (
+        <button type="button" className="btn-link" onClick={() => setOpen(!open)}>
+          {open ? "Show less" : "Show full answer"}
+        </button>
+      )}
+    </>
+  );
+}
+
+function LiveAnswerBox({ live }: { live: LiveAnswer }) {
   let chip = { text: "Output check: Allowed", tone: "good" };
   if (live.error) chip = { text: "Error", tone: "critical" };
   else if (live.shown_only) chip = { text: "Shown only", tone: "neutral" };
@@ -19,12 +53,7 @@ function LiveAnswerBox({ live }: { live: LiveAnswer }) {
       {live.error ? (
         <p className="error-text">{live.error}</p>
       ) : (
-        <>
-          <p className={open ? "live-text" : "live-text clamp-2"}>{live.text}</p>
-          <button type="button" className="btn-link" onClick={() => setOpen(!open)}>
-            {open ? "Show less" : "Show full answer"}
-          </button>
-        </>
+        <ClampedText text={live.text} lines={2} className="live-text" />
       )}
       <p className="micro">
         {[live.timings_ms.agents !== undefined && `Answer model ${seconds(live.timings_ms.agents)}`, live.timings_ms.output !== undefined && `output check ${seconds(live.timings_ms.output)}`]
@@ -50,11 +79,17 @@ function reasonFor(result: UseCaseResult): string {
   if (result.outcome === "error") return result.error;
   if (result.path === "input_blocked") {
     const names = (result.input.entities || []).map((item) => item.label).join(", ");
-    if (names) return `The input check found personal data (${names}). Pattern check, no model.`;
+    if (names) return `The input check found personal data (${names}). ${checkLabel(result.input)}.`;
+    if (result.input.detector === "nemo_pii") {
+      return `The input check found personal details, such as a name, place, or crypto wallet. ${checkLabel(result.input)}.`;
+    }
     return `The input check stopped the question${result.input.rule_name ? ` under the ${result.input.rule_name} policy` : ""}. No answer was written.`;
   }
   if (result.path === "payment_blocked") return `The payment check stopped the transfer. ${result.payment?.reason || ""}`.trim();
   if (result.path === "output_caught") {
+    if (result.output.detector === "nemo_pii") {
+      return `The output check stopped the draft because it contains personal details, such as a name or crypto wallet. ${checkLabel(result.output)}.`;
+    }
     const how = result.output.rewrite ? "replaced the draft with the safe reply" : "stopped the draft";
     return `The output check ${how}${result.output.rule_name ? ` under the ${result.output.rule_name} policy` : ""}.`;
   }
@@ -113,6 +148,7 @@ export function ResultCompare({ query, result, playback, onRunAgain }: ComparePr
 
   const payment = result.payment;
   const scripted = result.draft_source === "scripted";
+  const testPrompt = result.draft_source === "test_prompt";
   const decisive = decisiveJudge(result);
   const flagged = (result.input?.entities || []).map((item) => item.label).join(", ");
   const guardedFailed = result.outcome === "error";
@@ -129,20 +165,30 @@ export function ResultCompare({ query, result, playback, onRunAgain }: ComparePr
           {playback.draft > 0 ? (
             <div className="bubble bubble-assistant">
               <span className="who">
-                {scripted ? (
+                {scripted || testPrompt ? (
                   <>
-                    Assistant <span className="tag tag-neutral">Scripted test draft</span>
+                    Assistant <span className="tag tag-neutral">{scripted ? "Scripted test draft" : "Draft from a test prompt"}</span>
                   </>
                 ) : (
                   "Assistant, live AI answer"
                 )}
               </span>
-              <Typed text={draftText} count={playback.draft} className={result.unguarded_error ? "error-text" : "clamp-6"} />
+              {result.unguarded_error ? (
+                <Typed text={draftText} count={playback.draft} className="error-text" />
+              ) : (
+                <ClampedText text={draftText} count={playback.draft} lines={6} />
+              )}
+              {testPrompt && draftDone && result.draft_prompt && (
+                <details className="test-prompt">
+                  <summary>Test instructions given to the answer model</summary>
+                  <p className="micro">{result.draft_prompt}</p>
+                </details>
+              )}
             </div>
           ) : (
             !done && <p className="bubble bubble-waiting">The assistant is writing…</p>
           )}
-          {scripted && result.live_answer && draftDone && playback.revealed >= 3 && <LiveAnswerBox live={result.live_answer} />}
+          {(scripted || testPrompt) && result.live_answer && draftDone && playback.revealed >= 3 && <LiveAnswerBox live={result.live_answer} />}
           {payment && playback.revealed >= 4 && (
             <Balance before={payment.ledger_before?.balance} after={payment.ledger_unguarded?.balance} />
           )}
@@ -163,7 +209,7 @@ export function ResultCompare({ query, result, playback, onRunAgain }: ComparePr
           {!guardedFailed && playback.reply > 0 && (
             <div className="bubble bubble-assistant">
               <span className="who">Assistant</span>
-              <Typed text={result.guarded_response} count={playback.reply} className="clamp-6" />
+              <ClampedText text={result.guarded_response} count={playback.reply} lines={6} />
             </div>
           )}
           {!done && playback.reply === 0 && <p className="bubble bubble-waiting">Checking before anything reaches the customer…</p>}
@@ -213,7 +259,9 @@ function ResultFooter({ result, decisive, flagged, onRunAgain, openAudit }: Foot
             <strong>Stopped by mistake.</strong> This test expected the request to be allowed.{" "}
             {flagged
               ? `The pattern check read part of it as ${flagged}.`
-              : decisive
+              : result.input?.detector === "nemo_pii" || result.output?.detector === "nemo_pii"
+                ? "NeMo's PII extension read part of it as a name, place, or crypto wallet."
+                : decisive
                 ? "The judge is a model, so its verdict can vary between runs."
                 : ""}
           </p>

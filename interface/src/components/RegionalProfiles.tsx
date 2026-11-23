@@ -101,7 +101,7 @@ export function RegionalProfiles() {
 
       <section className="card">
         <h3>Try a sentence</h3>
-        <p className="hint">See what the selected version does with a customer message, for the region selected above. The guard server's pattern check runs it; no model is asked.</p>
+        <p className="hint">See what the selected version does with a customer message, for the region selected above. The guard server's pattern check runs it; no model is asked. Names, places, and crypto wallets are checked after it by NeMo's PII extension, which this tester does not run.</p>
         <div className="inline-row">
           <input className="input" value={text} onChange={(e) => setText(e.target.value)} placeholder="Type a customer message" onKeyDown={(e) => e.key === "Enter" && text.trim() && void check()} />
           <button type="button" className="btn btn-primary" onClick={check} disabled={busy || !text.trim()}>

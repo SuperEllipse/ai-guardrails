@@ -1,4 +1,4 @@
-import type { JudgeInfo, UseCaseResult } from "./api/demo";
+import type { CheckInfo, JudgeInfo, UseCaseResult } from "./api/demo";
 
 /** The words used on screen. */
 export const JUDGE_LABELS: Record<string, string> = {
@@ -47,8 +47,21 @@ export function judgedBy(judge: JudgeInfo | null | undefined): string {
 export function decisiveJudge(result: UseCaseResult): JudgeInfo | undefined {
   if (result.path === "payment_blocked" || result.path === "payment_allowed") return undefined;
   if (result.path === "input_blocked") return result.input?.judge;
+  if (result.path === "output_caught") return result.output?.judge;
   if (result.outcome === "error") return result.error_step === "input" ? result.input?.judge : result.output?.judge;
   return result.output?.judge || result.input?.judge;
+}
+
+/** How a check that called no model decided, as the guard server labelled it. */
+export function checkLabel(info: CheckInfo | undefined): string {
+  const label = info?.label || "pattern check, no model";
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+/** The check that decided the result, when it was not the payment check. */
+export function decidingCheck(result: UseCaseResult): CheckInfo | undefined {
+  if (result.path === "input_blocked" || result.error_step === "input") return result.input;
+  return result.output && Object.keys(result.output).length > 0 ? result.output : result.input;
 }
 
 export function seconds(ms: number | null | undefined): string {

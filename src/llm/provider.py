@@ -164,6 +164,8 @@ def format_llm_connection_error(exc: Exception, config: LLMConfig) -> str:
 def create_crewai_llm(config: LLMConfig | None = None) -> Any:
     from crewai import LLM
 
+    from src.llm.nemotron_tool_calls import NemotronToolCallInterceptor
+
     cfg = config or default_llm_config()
     if cfg.provider == "caiis" and not cfg.api_key:
         cfg.api_key = _read_cdp_token()
@@ -184,6 +186,10 @@ def create_crewai_llm(config: LLMConfig | None = None) -> Any:
         cfg.base_url and cfg.base_url.rstrip("/") != "https://api.openai.com/v1"
     ):
         kwargs["provider"] = "openai"
+        # Nemotron otherwise writes its reasoning into the reply and can spend the
+        # whole token budget on it. Templates without this setting ignore it.
+        kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+        kwargs["interceptor"] = NemotronToolCallInterceptor()
     return LLM(**kwargs)
 
 

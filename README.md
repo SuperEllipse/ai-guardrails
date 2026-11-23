@@ -17,7 +17,7 @@ Every result comes from a live call. If a call fails, the app shows the error; i
 - **Stress test**: batches of adversarial prompts per policy, with a spreadsheet download.
 - **Audit trail**: every guard decision with its input, draft, reply, judge, and timings.
 - **Choice of safety judge**: the answer model itself, Llama Guard on Cloudera AI Inference, or an NVIDIA NIM safety model.
-- **Regional ID profiles**: national ID, card, phone, and email detection per region.
+- **Personal-data checks in the guard server**: regional ID, card, phone, and email patterns with checksums, plus NeMo Guardrails' PII extension (Presidio) for names, places, and crypto wallets. See [personal-data detection](docs/extending-pii-detection.md).
 
 ## Deploy as a Cloudera AMP
 
@@ -26,7 +26,7 @@ You need a Cloudera AI Workbench, an answer model endpoint on Cloudera AI Infere
 1. In Cloudera AI Workbench, create a new project from **AMPs**, or choose **New Project > Git** and enter this repository's URL.
 2. Fill in the model settings. The required ones are `CAIIS_HOST`, `CAIIS_ENDPOINT`, `CAIIS_MODEL_ORG`, and `CAIIS_MODEL_NAME`. Set `CAIIS_API_PATH=none` when the endpoint's address ends in `/endpoints/<name>/v1` without `/openai`. To use Llama Guard as the judge, fill in the `LLAMA_GUARD_*` settings and set `DEFAULT_SAFETY_MODE=llama_guard`. No token is needed: the app reads the session's own token.
 3. Launch. The AMP ([`.project-metadata.yaml`](.project-metadata.yaml)) recommends the **PBJ Workbench, Python 3.12, Standard** runtime, then:
-   - installs `requirements.txt`
+   - installs `requirements.txt` and the spaCy model `en_core_web_lg` (about 560 MB) that NeMo's PII extension requires
    - starts **NeMo Guardrails Server** (subdomain `nemo-guardrails`, unauthenticated access)
    - starts **Guardrails for Banking Demo** (subdomain `banking-guardrails-demo`)
 4. Open **Guardrails for Banking Demo**, go to **Setup**, and press **Test connection** on each card. All three should say "Connected".
@@ -56,45 +56,18 @@ The **Start here** tab has the same script.
 1. Open **Setup** and test all three connections.
 2. Press **Try a normal question**: normal questions get normal answers.
 3. Run **Mutual fund**: advice is stopped at the input check.
-4. Run **Biased reply**: a scripted risky draft is caught at the output check, with the real live answer shown underneath.
+4. Run **Biased reply**: for this test the answer model is told to answer with age and gender bias, and the output check stops that draft. The normal live answer is shown underneath.
 5. Run **New account transfer**: the payment check stops it and the demo ledger does not change.
 6. Run **Refund promise**: with no custom policy deployed, the reply gets through and the app says **Gap found**. Press **Close this gap**, then **Test rule**, **Deploy**, and **Run the gap test again**.
 7. Press **Run all tests**, then open the **Audit trail**.
 
-Each test takes about 3 to 15 seconds of live model calls. To show the gap again, press **Remove from server** in Custom policies.
+Each test takes about 3 to 15 seconds of live model calls. The first check after the guard server starts takes about 5 seconds longer while NeMo loads the spaCy model. To show the gap again, press **Remove from server** in Custom policies.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    user(["User"]) --> ui
+![Architecture: the web app and the guard server run as two Cloudera AI Applications, and the models run on Cloudera AI Inference Service](assets/architecture.jpg)
 
-    subgraph app2["Cloudera AI Application 2 — web UI"]
-        ui["React UI"] --> api["FastAPI backend"]
-        api --> crew["CrewAI agents"]
-        crew --> cis[("Dummy banking data")]
-        api --> emb["NeMo Guardrails<br/>embedded"]
-        emb --> pii["Presidio<br/>PII detection"]
-        api --> db[("SQLite<br/>violation log")]
-    end
-
-    subgraph app1["Cloudera AI Application 1"]
-        srv["NeMo Guardrails server"]
-    end
-
-    subgraph caii["Cloudera AI Inference Service"]
-        llm["Nemotron 3 Nano"]
-        lg["Llama Guard 3<br/>optional"]
-    end
-
-    api -- "Centralized Server mode" --> srv
-    crew --> llm
-    emb --> llm
-    srv --> llm
-    api -. "optional" .-> lg
-```
-
-*The diagram shows the original layout. The current web app sends every check to the guard server (Application 1), and personal data is detected there by regional pattern and checksum rules rather than Presidio.*
+*The diagram shows the original layout. The current web app sends every check to the guard server (Application 1), which runs both personal-data layers: regional patterns, then NeMo's PII extension with Presidio. [Personal-data detection](docs/extending-pii-detection.md) explains both, their limits, and how to extend them.*
 
 | Path | Contents |
 | --- | --- |
@@ -106,6 +79,7 @@ flowchart LR
 | `scripts/` | Dependency install, project settings helper, session start scripts |
 | `data/dummy_cis/` | Dummy banking data |
 | `tests/` | Unit tests |
+| `docs/` | [Personal-data detection](docs/extending-pii-detection.md) |
 
 ## Documentation
 

@@ -155,7 +155,13 @@ export function AuditTrail() {
             <dd>{detail.input_prompt}</dd>
             {detail.draft && (
               <>
-                <dt>{detail.draft_source === "scripted" ? "Scripted test draft" : "Live AI draft"}</dt>
+                <dt>
+                  {detail.draft_source === "scripted"
+                    ? "Scripted test draft"
+                    : detail.draft_source === "test_prompt"
+                      ? "AI draft from a test prompt"
+                      : "Live AI draft"}
+                </dt>
                 <dd>{detail.draft}</dd>
               </>
             )}

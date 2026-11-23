@@ -37,12 +37,15 @@ export interface DemoExample {
   area: string;
   title: string;
   query: string;
+  queries?: Record<string, string>;
+  drafts?: Record<string, string>;
   kind: string;
   stage: Stage;
   expected: "block" | "allow";
   custom?: boolean;
   note: string;
   draft?: string;
+  draft_prompt?: string;
 }
 
 export interface RiskArea {
@@ -69,6 +72,7 @@ export interface CheckInfo {
   rule_name?: string;
   model_call?: boolean;
   label?: string;
+  detector?: string;
   error?: string;
   judge?: JudgeInfo;
   entities?: { id: string; label: string; reason?: string }[];
@@ -106,7 +110,8 @@ export interface UseCaseResult {
   stage: Stage;
   custom: boolean;
   query: string;
-  draft_source: "scripted" | "live";
+  draft_source: "scripted" | "test_prompt" | "live";
+  draft_prompt: string;
   unguarded_response: string;
   unguarded_error: string;
   guarded_response: string;
@@ -146,7 +151,6 @@ export interface AttackPrompt {
   user?: string;
   expected?: string;
   expected_v3?: string;
-  expected_all_regions?: string;
   regions?: string[];
 }
 
@@ -325,33 +329,22 @@ export const demoApi = {
     request<{ deployed: boolean; reload: ReloadResult }>("custom-rule/deploy", { method: "POST" }),
   undeployRule: () =>
     request<{ deployed: boolean; reload: ReloadResult }>("custom-rule/undeploy", { method: "POST" }),
-  usecase: (exampleId: string, region: string, profileVersion: string, allRegions: boolean) =>
+  usecase: (exampleId: string, region: string, profileVersion: string) =>
     request<UseCaseResult>("usecase", {
       method: "POST",
-      body: JSON.stringify({
-        example_id: exampleId,
-        region,
-        profile_version: profileVersion,
-        all_regions: allRegions,
-      }),
+      body: JSON.stringify({ example_id: exampleId, region, profile_version: profileVersion }),
     }),
   attacks: () => request<{ attacks: AttackPrompt[]; custom_deployed: boolean }>("attacks"),
   streamRedteam: async (
     policies: string[],
     region: string,
     profileVersion: string,
-    allRegions: boolean,
     onEvent: (event: RedEvent) => void,
   ) => {
     const resp = await fetch(`${API}/redteam/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        policies,
-        region,
-        profile_version: profileVersion,
-        all_regions: allRegions,
-      }),
+      body: JSON.stringify({ policies, region, profile_version: profileVersion }),
     });
     if (!resp.ok || !resp.body) {
       throw new Error(`The web app answered with HTTP ${resp.status}. ${resp.statusText}`.trim());
