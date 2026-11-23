@@ -57,12 +57,19 @@ Banks want generative-AI assistants for customer service, but an unguarded assis
    pip install -r requirements.txt
    python -m spacy download en_core_web_lg
    ```
-3. Configure a model provider. Copy a template and fill in your values:
+3. Configure the models in **Project Settings > Advanced > Environment Variables**. Every session, job, and application in the project picks these up, and no secrets live in the repository. In a Cloudera AI session the inference token is read from the session automatically, so no token variable is needed. Do this from a session terminal:
    ```bash
-   cp .env.caiis.example .env     # Cloudera AI Inference: endpoint URL, model, CDP token
-   # or
-   cp .env.openai.example .env    # OpenAI: API key
+   python scripts/setup_project_env.py template     # the variables and example values
+   python scripts/setup_project_env.py apply \
+     CAIIS_HOST=<inference-host> CAIIS_ENDPOINT=<answer-endpoint> CAIIS_API_PATH=openai \
+     CAIIS_MODEL_ORG=<org> CAIIS_MODEL_NAME=<model> \
+     LLAMA_GUARD_HOST=<inference-host> LLAMA_GUARD_ENDPOINT=<llama-guard-endpoint> \
+     DEFAULT_SAFETY_MODE=llama_guard GUARDRAILS_PORT=8001
+   python scripts/setup_project_env.py show         # check what the project now has
    ```
+   Set `CAIIS_API_PATH=none` when the endpoint's address ends in `/endpoints/<name>/v1` without `/openai`. You can also type the same variables into the Project Settings screen by hand. Restart the session afterwards so the new values apply, then check the connections with `python scripts/test_caiis_connection.py` and `python scripts/test_llama_guard_connection.py`.
+
+   Outside Cloudera AI, a local `.env` file still works: copy `.env.caiis.example` or `.env.openai.example` to `.env`.
 4. Start the guardrails server (Terminal 1) and note the port it prints:
    ```bash
    bash scripts/start_guardrails_server.sh

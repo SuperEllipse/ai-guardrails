@@ -64,7 +64,7 @@ def main() -> int:
             "Replace YOUR-DOMAIN and YOUR-MODEL with your endpoint details.",
         )
     if not token:
-        return _fail("No CDP token found.", "Set CDP_TOKEN in .env or ensure /tmp/jwt exists.")
+        return _fail("No CDP token found.", "Run inside a Cloudera AI session (token read from /tmp/jwt), or set CDP_TOKEN in project settings.")
 
     try:
         from openai import OpenAI

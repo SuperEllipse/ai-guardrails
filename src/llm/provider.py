@@ -14,6 +14,7 @@ from src.llm.caiis_url import (
     build_caiis_base_url,
     is_caiis_url_configured,
     is_llama_guard_url_configured,
+    read_session_jwt,
     resolve_caiis_base_url,
     resolve_caiis_model,
     resolve_llama_guard_base_url,
@@ -80,10 +81,7 @@ def _read_cdp_token() -> str:
     token = os.getenv("CDP_TOKEN", "").strip()
     if token:
         return token
-    jwt_path = Path("/tmp/jwt")
-    if jwt_path.exists():
-        return jwt_path.read_text().strip()
-    return ""
+    return read_session_jwt()
 
 
 def is_caiis_configured() -> bool:

@@ -12,7 +12,9 @@ remain supported for local ``.env`` files and CDSW sessions.
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 
 CAIIS_DEFAULT_NAMESPACE = "serving-default"
 CAIIS_DEFAULT_API_PATH = "openai"
@@ -22,6 +24,22 @@ LLAMA_GUARD_DEFAULT_MODEL = "meta-llama/Llama-Guard-3-8B"
 
 CAIIS_PLACEHOLDER_MARKERS = ("YOUR-DOMAIN", "YOUR-MODEL", "YOUR-ENDPOINT", "YOUR-CLUSTER-ID")
 LLAMA_GUARD_PLACEHOLDER_MARKERS = CAIIS_PLACEHOLDER_MARKERS
+
+SESSION_JWT_PATH = Path("/tmp/jwt")
+
+
+def read_session_jwt() -> str:
+    """Bearer token from the CAI session file, which holds JSON with ``access_token``."""
+    if not SESSION_JWT_PATH.is_file():
+        return ""
+    raw = SESSION_JWT_PATH.read_text(encoding="utf-8").strip()
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return "".join(raw.split())
+    if isinstance(data, dict):
+        return str(data.get("access_token") or "").strip()
+    return ""
 
 
 def _strip_slashes(value: str) -> str:
@@ -97,7 +115,9 @@ def _resolve_api_path(env_key: str, default: str | None) -> str:
     raw = os.getenv(env_key)
     if raw is None:
         return default or ""
-    return raw.strip()
+    value = raw.strip()
+    # Env var screens reject empty values, so "none" means the endpoint serves /v1 directly.
+    return "" if value.lower() == "none" else value
 
 
 def resolve_caiis_base_url() -> str:

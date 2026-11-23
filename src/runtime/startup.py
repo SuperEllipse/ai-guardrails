@@ -113,10 +113,9 @@ def setup_pythonpath(project_root: Path | None = None) -> Path:
 
 
 def _read_cdp_token_from_jwt() -> str | None:
-    jwt_path = Path("/tmp/jwt")
-    if not jwt_path.is_file():
-        return None
-    return "".join(jwt_path.read_text(encoding="utf-8").split())
+    from src.llm.caiis_url import read_session_jwt
+
+    return read_session_jwt() or None
 
 
 def configure_guardrails_llm_env() -> None:

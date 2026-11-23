@@ -25,6 +25,13 @@ The target look is in `interface/design/screenshots/`; `interface/design/wirefra
 - Non-deterministic model output is shown as it happened. Never correct it to match the expected result.
 - Pattern checks (ID screening) and payment rules on the demo ledger are real but use no model. Label them that way.
 
+## Environment
+
+- Configuration comes from Cloudera AI project environment variables (`scripts/setup_project_env.py show`). Do not create `.env`.
+- The inference token comes from the session (`read_session_jwt()`). Never print, log, or commit tokens, or write them to
+  `guardrails/catalog/connection.yml` or any tracked file.
+- Run Python through `.venv` (`source .venv/bin/activate`).
+
 ## Must
 
 - Build from REDESIGN.md. When it and the wireframe disagree, REDESIGN.md wins.

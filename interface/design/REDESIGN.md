@@ -304,6 +304,10 @@ A sub-navigation switches between Connections, Regional ID profiles, and Policy 
    - `nim`, "NVIDIA NIM": fields `nim_base_url`, `nim_model`, `nim_api_key`.
 
    Test runs `probe({target: "llama_guard" | "nim" | "answer"})` to match the choice.
+   **Where values come from (all connection cards).** Project environment variables are the main configuration. Values saved here override them (7.11).
+   - Under each field, show a small source tag: "From project settings", "Saved in app (overrides project settings)", or "Built-in default".
+   - When no token is saved, the token field shows "Using the session token automatically".
+   - A "Use project settings" link on each card clears that card's saved overrides.
 4. **Save and apply:** one button for the whole form, replacing today's Save button on each card. It calls `saveConnection`, then shows a three-item progress list (save settings, reload guard server, sample check). The sample check reuses the guard probe. It is enabled only when there are unsaved changes and every changed connection has passed its test. Show `reload.detail` when the server did not reload.
 
 **Side column (stays on screen):**
@@ -362,6 +366,7 @@ Read-only. Pill buttons for each `.co` file from `config.files` (exclude `region
 | 25 | "Judged by …" on judge steps and audit rows | Not returned; silent fallback to the answer model | `judge` provenance on every judge call | Yes (7.9) |
 | 26 | Per-step durations, probe latency | Not returned | `timings_ms` measured on the server | Yes (7.10) |
 | 27 | Error state on any step | `path = "error"` exists; UI handling is partial | Every failed call shows an error with a Setup link; never Allowed | No |
+| 28 | Source tag per setting, "Use project settings" | `connection.yml` silently overrides env | Show the source; reset clears the override | Yes (7.11) |
 
 ## 7. Backend changes
 
@@ -451,6 +456,13 @@ The output check and payment check need something risky to catch on every run, s
 - **Probes.** `probe_target()` returns `latency_ms`.
 - **UI.** Show only these values. Never show a duration the backend did not measure.
 
+### 7.11 Configuration source (`src/guardrails/connection.py`, `PUT /api/demo/connection`)
+
+- **Configuration comes from project settings.** Cloudera AI project environment variables are the source of truth (README step 3; `scripts/setup_project_env.py`). `guardrails/catalog/connection.yml` holds only explicit overrides saved from Setup.
+- **Report the source.** `public_connection()` returns `sources: {field: "project" | "saved" | "default"}`.
+- **Clear overrides.** `PUT /api/demo/connection` accepts `{reset: [field, ...]}`, which removes those keys from `connection.yml` so the project value applies again.
+- **Tokens.** Never write a token to `connection.yml` unless the user typed one into Setup. Inside a Cloudera AI session, the token comes from `/tmp/jwt` through `read_session_jwt()`.
+
 ## 8. Placeholder content in the wireframe (do not copy)
 
 - Unguarded and guarded replies, reasons, and the payment balances. Use `unguarded_response`, `guarded_response`, `payment.ledger_*`, and `input/output.rule/message` instead.
@@ -511,7 +523,7 @@ Ship one phase per pull request. After each phase, run the checks in section 12.
 | 3. Live risk test | 5.2 complete | All acceptance points in 5.2 pass against the real backend |
 | 4. Policy studio | 5.3 and 7.3 | Gap → test → deploy → re-run → blocked works end to end; undeploy restores the gap |
 | 5. Audit trail | 5.5; remove `GuardLog` | Filter and detail work; deep link from the live screen selects the row |
-| 6. Setup | 5.6.1 and 5.6.3 | One save; failed probes show inline; readiness and badge update; judge change is reflected in the chips and pipeline |
+| 6. Setup | 5.6.1, 5.6.3, and 7.11 | One save; failed probes show inline; readiness and badge update; judge change is reflected in the chips and pipeline; each field shows its source, and "Use project settings" clears overrides |
 | 7. Regional profiles | 5.6.2 and 7.5 | Version default syncs with the live screen; the tester returns real backend results |
 | 8. Stress test | 5.4 | Summary and per-policy table come from real runs |
 | 9. Cleanup | Remove unused legacy components (`Architecture`, `BatchDashboard`, `ChatCompare`, `FlowPath`, `SettingsPanel`, `StatusBar`, `PolicyStatus`, `DemoGuide`) if nothing imports them; remove dead CSS | `npm run build` passes; no unused imports |
@@ -556,7 +568,7 @@ Read these first, in this order:
    - 2A, real AI calls only (non-negotiable)
    - 5, screen-by-screen behaviour and acceptance
    - 6, the feature-to-code mapping
-   - 7, backend changes, including 7.7 to 7.10
+   - 7, backend changes, including 7.7 to 7.11
    - 8, placeholders you must not copy
    - 9, terminology
    - 11, phases
@@ -572,7 +584,7 @@ Rules:
   and the UI says which model actually answered. Every status comes from a live probe, and every duration is measured.
 - No faked or hard-coded results anywhere, in the frontend or the backend: no mocks, stubs, canned or recorded replies,
   demo or offline modes, verdicts computed in the frontend, or silent fallbacks. Stubs are allowed only inside unit tests.
-- Fix the existing backend violations first (2A list; sections 7.7 to 7.10). Fixed risky drafts may stay as test
+- Fix the existing backend violations first (2A list; sections 7.7 to 7.11). Fixed risky drafts may stay as test
   inputs, but they must be tagged "Scripted test draft" and still go through the real guard server and judge.
   On every run of those tests, also call the answer model live and show its real reply underneath, labelled
   "Live AI answer, not scripted", clamped to two lines, with its own output-check verdict.
@@ -584,6 +596,19 @@ Rules:
 - Where the design needs data the backend lacks, implement the backend change described in REDESIGN.md section 7.
 - Match the existing React and CSS conventions and the tokens in interface/src/styles/tokens.css.
 - Follow the copy and terminology table in REDESIGN.md section 9.
+
+Environment and credentials:
+- Configuration comes from the Cloudera AI project environment variables (README step 3).
+  Check them with `python scripts/setup_project_env.py show`. Do not create a .env file.
+  Do not change project settings without asking me.
+- The inference token is read automatically from the session (/tmp/jwt via read_session_jwt()).
+  Never print, log, copy, or commit tokens, and never write them into guardrails/catalog/connection.yml or any tracked file.
+- Run Python with the project environment: `source .venv/bin/activate`. Start the guard server
+  (scripts/start_guardrails_server.sh, port 8001) and the web app (scripts/start_demo.sh, port 8090)
+  as separate background processes, and stop any older copies first.
+- Ask me for full network access when calling the inference endpoints.
+- If a model call returns 401 or 404, stop and report it, including which endpoint failed.
+  Do not fall back to mocks or hard-coded data.
 
 Process:
 1. Start in Plan mode. Read the current code listed in section 6. Propose the component structure and the
