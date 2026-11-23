@@ -1,0 +1,78 @@
+---
+description: Keep UI work on the Banking Guardrails demo aligned with the approved redesign in interface/design/REDESIGN.md, with real AI calls only
+globs: interface/src/**,interface/design/**,src/api/demo_api.py,src/api/demo_examples.py,src/api/usecase_runner.py,src/guardrails/audit_log.py,src/guardrails/profile_view.py,src/guardrails/pii_screen.py,src/guardrails/written_rules.py,src/guardrails/guard_client.py,src/guardrails/transfer_gate.py,src/guardrails/connection_probe.py,src/simulation/redteam.py
+alwaysApply: false
+---
+
+# UI redesign
+
+`interface/design/REDESIGN.md` is the spec for the demo UI. Read the relevant section before changing a screen.
+The target look is in `interface/design/screenshots/`; `interface/design/wireframe.html` shows the interactions.
+
+## Real AI calls only (REDESIGN.md section 2A, overrides everything else)
+
+- Drafts come from a live call to the configured answer model. Verdicts come from the guard server.
+  Written-rule decisions come from the configured judge (LLM as self judge, Llama Guard, or NVIDIA NIM),
+  and the UI names the model that actually answered. Statuses come from live probes, and durations are measured.
+- No mocks, stubs, canned or recorded replies, id-based verdicts, demo or offline modes, or silent fallbacks,
+  in the frontend or the backend. Stubs belong only in unit tests.
+- The one allowed fixed input is a scripted risky draft (REDESIGN.md section 7.7), and it must meet three conditions:
+  - It lives in `demo_examples.py`, is tagged "Scripted test draft", and goes through the real guard server and judge.
+  - Every run also calls the answer model live, sends that reply through the real output check, and shows it
+    underneath as "Live AI answer, not scripted", clamped to two lines, with its own verdict.
+  - It never appears in the UI as if the AI wrote it.
+- A failed call shows an error with a Setup link. It never shows Allowed or Passed, and never shows a substitute reply.
+- Non-deterministic model output is shown as it happened. Never correct it to match the expected result.
+- Pattern checks (ID screening) and payment rules on the demo ledger are real but use no model. Label them that way.
+
+## Must
+
+- Build from REDESIGN.md. When it and the wireframe disagree, REDESIGN.md wins.
+- Never copy the wireframe's replies, timings, addresses, keyword matching, ID patterns, or numbers
+  (REDESIGN.md section 8).
+- When the design needs data the backend lacks, make the backend change in REDESIGN.md section 7.
+  Do not fake it in the frontend.
+- Use the labels in REDESIGN.md section 9. For example "Live risk test", not "Compliance / Risks Guardrail Test";
+  "Judge: Llama Guard", not `llama_guard`.
+- Use colours from `interface/src/styles/tokens.css` with fixed meanings: red stopped, green passed,
+  amber gap or needs attention, blue in progress or selected.
+- Keep the pipeline in execution order: Customer, Input check, AI assistant, Payment check, Output check, Reply.
+
+## Verify each change
+
+1. `cd interface && npm run typecheck && npm run build`
+2. Run the Start here presenter script end to end against the real backend.
+3. Run the real-call checks in REDESIGN.md section 12, step 6. For example, stop the guard server and confirm
+   that errors appear and nothing shows Allowed.
+4. Capture the changed screen at 1280 px (adapt `interface/design/tools/capture_screenshots.py`), compare it
+   with the matching file in `interface/design/screenshots/`, and report the differences.
+
+## Avoid
+
+```tsx
+// Bad: simulating a verdict in the frontend
+const blocked = /refund|reimburse/i.test(draft);
+
+// Bad: an unknown result quietly becomes "allowed"
+const verdict = VERDICTS[result.path] ?? VERDICTS.allowed;
+
+// Good: render what the backend returned; anything unknown is an error
+const verdict = VERDICTS[result.path] ?? VERDICTS.error;
+```
+
+```python
+# Bad: an unlabelled scripted draft passed off as the AI's answer, and a verdict keyed on the example id
+if example.get("kind") == "fixed_draft":
+    return example["draft"]
+if example.get("id") == "refund" and not custom_is_deployed():
+    path = "refund_pending"
+
+# Good: label the scripted draft, run the live answer alongside it, and derive the outcome from the real checks
+if example.get("kind") == "scripted_draft":
+    scripted, live = await asyncio.gather(
+        check_output(example["draft"]),
+        live_answer_with_check(query),
+    )
+    result.update(draft_source="scripted", live_answer=live)
+outcome = compare(example["expected"], actual_verdict)
+```
