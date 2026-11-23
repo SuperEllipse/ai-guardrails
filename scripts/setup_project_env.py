@@ -10,6 +10,7 @@ CDSW_API_URL, CDSW_PROJECT_ID, and CDSW_APIV2_KEY, so no extra login is needed.
 
     python scripts/setup_project_env.py template          # variables this demo reads
     python scripts/setup_project_env.py show              # what the project has now
+    eval "$(python scripts/setup_project_env.py env)"     # load them into this terminal, without a restart
     python scripts/setup_project_env.py apply KEY=VALUE ... [--unset KEY ...] [--dry-run]
 
 Values must start and end with a letter or digit and only contain letters, digits, '-',
@@ -24,6 +25,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import sys
 
 import httpx
@@ -97,6 +99,16 @@ def cmd_show(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_env(_: argparse.Namespace) -> int:
+    _, env = _load()
+    for key in sorted(KNOWN - SECRETS):
+        value = env.get(key, "")
+        if value and not key.endswith(("_TOKEN", "_KEY")) and SAFE_VALUE.match(value):
+            print(f"export {key}={shlex.quote(value)}")
+    print("unset CDP_TOKEN")
+    return 0
+
+
 def cmd_apply(args: argparse.Namespace) -> int:
     updates: dict[str, str] = {}
     problems: list[str] = []
@@ -162,6 +174,9 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("template", help="List the variables this demo reads").set_defaults(func=cmd_template)
     sub.add_parser("show", help="Show the project's variables, with secrets hidden").set_defaults(func=cmd_show)
+    sub.add_parser(
+        "env", help="Print export lines for the non-secret variables, for: eval \"$(... env)\""
+    ).set_defaults(func=cmd_env)
     apply = sub.add_parser("apply", help="Add or change variables in project settings")
     apply.add_argument("pairs", nargs="*", metavar="KEY=VALUE")
     apply.add_argument("--unset", action="append", default=[], metavar="KEY", help="Remove a variable")

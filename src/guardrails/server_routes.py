@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from fastapi import FastAPI
@@ -39,14 +40,20 @@ def mount_guard_routes(app: FastAPI) -> None:
         from nemoguardrails.server.api import _get_rails
 
         set_scope(body.region, body.profile_version, body.all_regions)
+        started = time.perf_counter()
         try:
             rails = await _get_rails([body.config_id or CONFIG_ID])
             rail_types = [RailType(item) for item in body.rail_types]
             result = await rails.check_async(messages=body.messages, rail_types=rail_types)
             info = decision()
-            content = info["message"] if info.get("blocked") else (result.content or "")
-            status = "blocked" if info.get("blocked") else result.status.value
-            return {"status": status, "content": content, "decision": info}
+            if info.get("error"):
+                status = "error"
+                content = ""
+            else:
+                content = info["message"] if info.get("blocked") else (result.content or "")
+                status = "blocked" if info.get("blocked") else result.status.value
+            elapsed = round((time.perf_counter() - started) * 1000)
+            return {"status": status, "content": content, "decision": info, "elapsed_ms": elapsed}
         finally:
             clear_request()
 

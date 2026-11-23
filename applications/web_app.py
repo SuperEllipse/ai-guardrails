@@ -100,6 +100,10 @@ def main() -> int:
     load_dotenv_files(project_root)
 
     mode = _detect_mode(args.mode)
+    if mode == "application":
+        # GUARDRAILS_PORT points at a guard server in the same session; an Application reaches
+        # the guard server Application through GUARDRAILS_SERVER_URL or GUARDRAILS_HOST.
+        os.environ.pop("GUARDRAILS_PORT", None)
     bind_host, port = pick_bind(mode, "web")
 
     from src.api.app import WEB_DIST, create_app

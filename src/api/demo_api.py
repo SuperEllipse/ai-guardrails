@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -13,13 +14,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from src.api.demo_examples import EXAMPLES
+from src.api.demo_examples import AREAS, EVERYDAY, EXAMPLES
 from src.api.usecase_runner import run_usecase
-from src.guardrails.audit_log import get_log, list_logs, record_log
+from src.guardrails.audit_log import count_logs, get_log, list_logs, record_log
 from src.guardrails.catalog_build import build_active_config
 from src.guardrails.connection import public_connection, save_connection
-from src.guardrails.connection_probe import probe_target
+from src.guardrails.connection_probe import probe_status, probe_target
 from src.guardrails.guard_client import reload_server
+from src.guardrails.pii_screen import explain_text
 from src.guardrails.profile_view import profile_catalog
 from src.guardrails.written_rules import (
     CUSTOM_SOURCE,
@@ -38,6 +40,7 @@ POLICIES = [
     {"id": "sensitive_data", "label": "Sensitive data"},
     {"id": "fair_dealing", "label": "Fair dealing"},
 ]
+CUSTOM_POLICY_LABEL = "Refund promises"
 
 
 class ConnectionUpdate(BaseModel):
@@ -52,6 +55,14 @@ class ConnectionUpdate(BaseModel):
     nim_model: str = ""
     nim_api_key: str = ""
     server_url: str = ""
+    reset: list[str] = Field(default_factory=list)
+
+
+class ProfileTry(BaseModel):
+    text: str
+    region: str = "US"
+    profile_version: str = "v1"
+    all_regions: bool = False
 
 
 class CustomRuleUpdate(BaseModel):
@@ -93,21 +104,41 @@ class ProbeRequest(BaseModel):
 
 def _violation(result: dict[str, Any]) -> tuple[str, str]:
     path = result.get("path")
+    if path == "error":
+        return "error", str(result.get("error") or "")
     if path == "input_blocked":
         info = result.get("input") or {}
-        return "yes", _reason_text(info.get("rule"), info.get("message"))
+        return "yes", _reason_text(info.get("rule_name"), info.get("message"))
     if path == "output_caught":
         info = result.get("output") or {}
-        return "yes", _reason_text(info.get("rule"), info.get("message"))
+        return "yes", _reason_text(info.get("rule_name"), info.get("message"))
     if path == "payment_blocked":
         payment = result.get("payment") or {}
-        return "yes", str(payment.get("reason") or "The payment check stopped the transfer.")
+        return "yes", str(payment.get("reason") or "")
     return "no", ""
 
 
 def _reason_text(rule: Any, message: Any) -> str:
     parts = [str(part).strip() for part in (rule, message) if str(part or "").strip()]
-    return ". ".join(parts) or "The guard server stopped this text."
+    return ". ".join(parts)
+
+
+def _decisive_judge(result: dict[str, Any]) -> dict[str, Any] | None:
+    for key in ("output", "input"):
+        judge = (result.get(key) or {}).get("judge")
+        if judge:
+            return judge
+    return None
+
+
+def _live_verdict(live: dict[str, Any] | None) -> str | None:
+    if not live:
+        return None
+    if live.get("error"):
+        return "error"
+    if live.get("shown_only"):
+        return "shown_only"
+    return "block" if (live.get("output") or {}).get("blocked") else "allow"
 
 
 def _read_custom() -> dict[str, Any]:
@@ -125,6 +156,7 @@ def _read_custom() -> dict[str, Any]:
         "should_block": list(tests.get("should_block") or []),
         "should_pass": list(tests.get("should_pass") or []),
         "deployed": custom_is_deployed(),
+        "deployed_current": custom_is_deployed() and DEPLOYED.read_text() == CUSTOM_SOURCE.read_text(),
     }
 
 
@@ -155,12 +187,15 @@ def register_demo_routes(app: FastAPI) -> None:
     async def demo_config() -> dict[str, Any]:
         policies = list(POLICIES)
         if custom_is_deployed():
-            policies.append({"id": "redress_liability", "label": "Custom refund rule"})
+            policies.append({"id": "redress_liability", "label": CUSTOM_POLICY_LABEL})
         return {
             "connection": public_connection(),
             "custom_rule": _read_custom(),
             "files": _server_files(),
             "examples": EXAMPLES,
+            "areas": AREAS,
+            "everyday": EVERYDAY,
+            "log_count": count_logs(),
             "policies": policies,
             "regions": [
                 {"id": "SG", "label": "Singapore"},
@@ -173,7 +208,9 @@ def register_demo_routes(app: FastAPI) -> None:
 
     @app.put("/api/demo/connection")
     async def update_connection(body: ConnectionUpdate) -> dict[str, Any]:
-        saved = save_connection(body.model_dump())
+        fields = body.model_dump()
+        reset = fields.pop("reset")
+        saved = save_connection(fields, reset=reset)
         build_active_config()
         reloaded = await reload_server()
         return {"connection": public_connection(), "reload": reloaded, "saved_model": saved.get("model")}
@@ -190,28 +227,47 @@ def register_demo_routes(app: FastAPI) -> None:
         passed = True
         for bucket, expect_block in (("should_block", True), ("should_pass", False)):
             for sentence in (rule.get("tests") or {}).get(bucket) or []:
+                started = time.perf_counter()
                 judged = await judge_text(sentence, "output", rules=[rule], region="US")
+                elapsed = round((time.perf_counter() - started) * 1000)
                 ok = bool(judged.get("blocked")) is expect_block and not judged.get("error")
                 passed = passed and ok
                 actual = "error" if judged.get("error") else ("block" if judged.get("blocked") else "allow")
-                message = judged.get("message") or judged.get("error") or ""
+                expected = "block" if expect_block else "allow"
+                message = judged.get("error") or judged.get("message") or ""
                 results.append(
                     {
                         "sentence": sentence,
-                        "expected": "block" if expect_block else "allow",
+                        "expected": expected,
                         "actual": actual,
                         "ok": ok,
                         "message": message,
+                        "judge": judged.get("judge"),
+                        "elapsed_ms": elapsed,
                     }
                 )
                 record_log(
                     source="custom_rule",
                     input_prompt=sentence,
-                    output_response=message or ("Blocked" if actual == "block" else "Allowed"),
-                    violation="yes" if actual == "block" else "no",
-                    reason=message if actual == "block" else "",
+                    output_response=judged.get("message") or "",
+                    violation={"block": "yes", "allow": "no"}.get(actual, "error"),
+                    reason=message,
+                    title=f"{CUSTOM_POLICY_LABEL} policy test",
+                    area="Promises and commitments",
+                    stage="policy_test",
+                    outcome="as_expected" if ok else ("error" if actual == "error" else "not_expected"),
+                    judge=judged.get("judge"),
+                    timings={"judge": elapsed},
+                    error=judged.get("error") or None,
                 )
         return {"passed": passed, "results": results}
+
+    @app.post("/api/demo/custom-rule/undeploy")
+    async def undeploy_custom_rule() -> dict[str, Any]:
+        DEPLOYED.unlink(missing_ok=True)
+        build_active_config()
+        reloaded = await reload_server()
+        return {"deployed": False, "reload": reloaded}
 
     @app.post("/api/demo/custom-rule/deploy")
     async def deploy_custom_rule() -> dict[str, Any]:
@@ -235,13 +291,28 @@ def register_demo_routes(app: FastAPI) -> None:
             all_regions=body.all_regions,
         )
         violation, reason = _violation(result)
-        record_log(
+        live = result.get("live_answer")
+        row = record_log(
             source="compliance",
             input_prompt=str(result.get("query") or ""),
             output_response=str(result.get("guarded_response") or ""),
             violation=violation,
             reason=reason,
+            example_id=result["example_id"],
+            title=result["title"],
+            area=result["area"],
+            stage=result["stage"],
+            region=result["region"],
+            outcome=result["outcome"],
+            judge=_decisive_judge(result),
+            timings=result.get("timings_ms"),
+            draft_source=result["draft_source"],
+            draft=result.get("unguarded_response") or None,
+            live_answer=(live or {}).get("text") or (live or {}).get("error") or None,
+            live_verdict=_live_verdict(live),
+            error=result.get("error") or result.get("unguarded_error") or None,
         )
+        result["log_id"] = row["id"]
         return result
 
     @app.post("/api/demo/redteam")
@@ -298,13 +369,26 @@ def register_demo_routes(app: FastAPI) -> None:
     async def profiles() -> dict[str, Any]:
         return profile_catalog()
 
+    @app.post("/api/demo/profiles/try")
+    async def try_profile(body: ProfileTry) -> dict[str, Any]:
+        matches = explain_text(body.text, body.region, body.profile_version, body.all_regions)
+        return {"blocked": any(item["matched"] for item in matches), "matches": matches}
+
     @app.post("/api/demo/connection/test")
     async def test_connection(body: ProbeRequest) -> dict[str, Any]:
         return await probe_target(body.target, body.model_dump())
 
+    @app.get("/api/demo/connection/status")
+    async def connection_status() -> dict[str, Any]:
+        return await probe_status()
+
     @app.get("/api/demo/logs")
     async def logs() -> list[dict[str, Any]]:
         return list_logs()
+
+    @app.get("/api/demo/logs/count")
+    async def logs_count() -> dict[str, int]:
+        return {"count": count_logs()}
 
     @app.get("/api/demo/logs/{log_id}")
     async def log_entry(log_id: str) -> dict[str, Any]:

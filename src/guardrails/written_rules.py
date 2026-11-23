@@ -1,10 +1,12 @@
-"""Written-rule check. The guard server asks the answer model yes or no."""
+"""Written-rule check. The guard server asks the configured judge yes or no."""
 
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import yaml
@@ -46,21 +48,14 @@ def load_rules(*, include_custom: bool | None = None) -> list[dict[str, Any]]:
     return rules
 
 
-def _parse(answer: str, known: set[str]) -> tuple[bool, str]:
+def _parse(answer: str, known: set[str]) -> tuple[bool, str] | None:
+    """Read the judge's reply. None when it gave no readable verdict."""
     cleaned = re.sub(r"<think>.*?(</think>|$)", "", answer or "", flags=re.DOTALL | re.IGNORECASE)
     block = re.search(r"block\s*:\s*(yes|no)", cleaned, flags=re.IGNORECASE)
     rule_ids = re.findall(r"\b([a-z][a-z0-9_]*)\b", cleaned, flags=re.IGNORECASE)
-    if block:
-        blocked = block.group(1).lower() == "yes"
-    else:
-        first = next((line.strip().lower() for line in cleaned.splitlines() if line.strip()), "")
-        if first == "safe":
-            blocked = False
-        elif first.startswith("unsafe"):
-            blocked = True
-        else:
-            tail = re.findall(r"\b(yes|no)\b", cleaned[-200:], flags=re.IGNORECASE)
-            blocked = bool(tail and tail[-1].lower() == "yes")
+    if not block:
+        return None
+    blocked = block.group(1).lower() == "yes"
     rule_id = next((item for item in rule_ids if item in known), "")
     if not rule_id and blocked and len(known) == 1:
         rule_id = next(iter(known))
@@ -98,23 +93,11 @@ def _prompt(rules: list[dict[str, Any]], stage: str, text: str) -> str:
     )
 
 
-def _infer_rule(text: str, rules: list[dict[str, Any]]) -> str:
-    """Name the rule when the model blocks without giving an id."""
-    lowered = text.lower()
-    skip = {"about", "these", "which", "other", "their", "would", "should", "assistant"}
-    best_id = ""
-    best_score = 0
-    for rule in rules:
-        words = {
-            word
-            for word in re.findall(r"[a-z]{5,}", str(rule.get("text") or "").lower())
-            if word not in skip
-        }
-        score = sum(1 for word in words if word in lowered)
-        if score > best_score:
-            best_score = score
-            best_id = str(rule.get("id") or "")
-    return best_id if best_score else ""
+JUDGE_NAMES = {"self_check": "the answer model", "llama_guard": "Llama Guard", "nim": "NVIDIA NIM"}
+
+
+def _host(url: str) -> str:
+    return urlparse(url).hostname or ""
 
 
 def _answer_target(cfg: dict[str, Any]) -> tuple[str, str, str]:
@@ -233,9 +216,21 @@ async def judge_text(
         return result
     cfg = load_connection()
     mode = checker or str(cfg.get("safety_mode") or "self_check")
+    if mode not in JUDGE_NAMES:
+        mode = "self_check"
     known = {rule["id"] for rule in active}
     base_url, model, api_key, who, user_only = _checker_target(cfg, mode)
     label = "judge asked yes or no"
+    judge: dict[str, Any] = {
+        "mode": mode,
+        "base_url_host": _host(base_url),
+        "model": model,
+        "answered_by": "",
+        "fallback_reason": "",
+        "latency_ms": 0,
+    }
+    started = time.perf_counter()
+    stage_who = who
     try:
         prompt = _prompt(active, stage, text)
         raw = await _ask_model(
@@ -246,19 +241,33 @@ async def judge_text(
             who=who,
             user_only=user_only,
         )
-        # Llama Guard answers safe or unsafe. That is its own list, so ask the
-        # answer model the same policy question and use that yes or no.
+        judge["answered_by"] = "answer_model" if mode == "self_check" else mode
+        # Llama Guard and NIM can answer in their own safe/unsafe format instead of
+        # the yes/no policy question. Ask the answer model, and say so.
         if not _answered_policy(raw) and mode != "self_check":
             answer_url, answer_model, answer_key = _answer_target(cfg)
+            judge.update(
+                {
+                    "answered_by": "answer_model",
+                    "fallback_reason": f"{JUDGE_NAMES[mode]} replied safe/unsafe, not yes/no",
+                    "model": answer_model,
+                    "base_url_host": _host(answer_url),
+                    "requested_model": model,
+                }
+            )
+            stage_who = "The answer model"
             raw = await _ask_model(
                 prompt,
                 base_url=answer_url,
                 model=answer_model,
                 api_key=answer_key,
-                who="The answer model",
+                who=stage_who,
                 user_only=False,
             )
+        parsed = _parse(raw, known)
     except Exception as exc:
+        judge["latency_ms"] = round((time.perf_counter() - started) * 1000)
+        judge["answered_by"] = ""
         result = {
             "blocked": False,
             "rewrite": False,
@@ -267,30 +276,60 @@ async def judge_text(
             "model_call": True,
             "label": label,
             "entities": [],
-            "error": f"{who} could not be reached. {exc}",
+            "judge": judge,
+            "error": _call_error(stage_who, judge["base_url_host"] or "an empty address", exc),
         }
         record(result)
         return result
-    blocked, rule_id = _parse(raw, known)
-    if blocked and rule_id not in known:
-        rule_id = _infer_rule(text, active)
+    judge["latency_ms"] = round((time.perf_counter() - started) * 1000)
+    if parsed is None:
+        result = {
+            "blocked": False,
+            "rewrite": False,
+            "message": "",
+            "rule": "",
+            "model_call": True,
+            "label": label,
+            "entities": [],
+            "judge": judge,
+            "error": f"{stage_who} replied, but not with Block: Yes or Block: No. Reply: {raw.strip()[:160]}",
+        }
+        record(result)
+        return result
+    blocked, rule_id = parsed
     matched = next((rule for rule in active if rule["id"] == rule_id), None)
     rewrite = bool(blocked and matched and matched.get("on_violation") == "rewrite" and stage == "output")
     if rewrite and matched:
         message = _regional_message(matched, region_id)
+    elif blocked and matched:
+        message = f"I can't help with that. It conflicts with the {matched['name']} policy."
     elif blocked:
-        name = matched["name"] if matched else "banking"
-        message = f"I can't help with that. It conflicts with the {name} rule."
+        message = "I can't help with that. The judge did not name the policy."
     else:
         message = ""
     result = {
         "blocked": blocked,
         "rewrite": rewrite,
         "message": message,
-        "rule": rule_id if blocked else "",
+        "rule": rule_id if blocked and matched else "",
+        "rule_name": str(matched.get("name") or "") if blocked and matched else "",
         "model_call": True,
         "label": label,
         "entities": [],
+        "judge": judge,
     }
     record(result)
     return result
+
+
+def _call_error(who: str, where: str, exc: Exception) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code == 401:
+            return f"{who} refused the request (HTTP 401 at {where}). Check its token in Setup."
+        if code == 404:
+            return f"{who} was not found (HTTP 404 at {where}). Check its address and model name in Setup."
+        return f"{who} answered with HTTP {code} at {where}."
+    if isinstance(exc, httpx.RequestError):
+        return f"{who} could not be reached at {where}. {exc.__class__.__name__}."
+    return f"{who} did not answer. {exc}"

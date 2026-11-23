@@ -1,3 +1,5 @@
+export type FieldSource = "project" | "saved" | "default" | "session";
+
 export interface DemoConnection {
   model: string;
   base_url: string;
@@ -10,6 +12,7 @@ export interface DemoConnection {
   has_api_key: boolean;
   has_llama_guard_api_key: boolean;
   has_nim_api_key: boolean;
+  sources: Record<string, FieldSource>;
 }
 
 export interface CustomRule {
@@ -23,22 +26,39 @@ export interface CustomRule {
   should_block: string[];
   should_pass: string[];
   deployed: boolean;
+  deployed_current: boolean;
 }
+
+export type Stage = "input" | "output" | "payment";
 
 export interface DemoExample {
   id: string;
+  area_id: string;
   area: string;
   title: string;
   query: string;
   kind: string;
+  stage: Stage;
+  expected: "block" | "allow";
+  custom?: boolean;
   note: string;
   draft?: string;
 }
 
-export interface FlowStep {
+export interface RiskArea {
   id: string;
-  state: string;
-  detail: string;
+  name: string;
+  question: string;
+}
+
+export interface JudgeInfo {
+  mode: string;
+  base_url_host: string;
+  model: string;
+  answered_by: "" | "answer_model" | "llama_guard" | "nim";
+  fallback_reason: string;
+  latency_ms: number;
+  requested_model?: string;
 }
 
 export interface CheckInfo {
@@ -46,31 +66,66 @@ export interface CheckInfo {
   rewrite?: boolean;
   message?: string;
   rule?: string;
+  rule_name?: string;
   model_call?: boolean;
   label?: string;
   error?: string;
+  judge?: JudgeInfo;
+  entities?: { id: string; label: string; reason?: string }[];
 }
+
+export interface LedgerView {
+  name: string;
+  balance: number;
+}
+
+export interface PaymentInfo {
+  allowed?: boolean;
+  reason?: string;
+  ledger_before?: LedgerView | null;
+  ledger_guarded?: LedgerView | null;
+  ledger_unguarded?: LedgerView | null;
+  error?: string;
+}
+
+export interface LiveAnswer {
+  text: string;
+  output: CheckInfo | null;
+  error: string;
+  shown_only: boolean;
+  timings_ms: { agents?: number; output?: number };
+}
+
+export type Outcome = "as_expected" | "gap" | "overblock" | "error";
 
 export interface UseCaseResult {
   example_id: string;
+  area_id: string;
   area: string;
   title: string;
+  stage: Stage;
+  custom: boolean;
   query: string;
+  draft_source: "scripted" | "live";
   unguarded_response: string;
+  unguarded_error: string;
   guarded_response: string;
   path: string;
-  steps: FlowStep[];
-  input?: CheckInfo;
-  output?: CheckInfo;
-  payment: {
-    allowed?: boolean;
-    reason?: string;
-    ledger_before?: { name: string; balance: number };
-    ledger_guarded?: { name: string; balance: number };
-    ledger_unguarded?: { name: string; balance: number };
-    error?: string;
-  } | null;
+  expected: "block" | "allow";
+  actual: "block" | "allow" | "error";
+  outcome: Outcome;
+  error: string;
+  error_step: string;
+  input: CheckInfo;
+  output: CheckInfo;
+  payment: PaymentInfo | null;
+  live_answer: LiveAnswer | null;
+  timings_ms: { input?: number; agents?: number; payment?: number; output?: number; total?: number };
+  region: string;
+  profile_version: string;
+  all_regions: boolean;
   custom_deployed: boolean;
+  log_id: string;
 }
 
 export interface TestRow {
@@ -79,6 +134,8 @@ export interface TestRow {
   actual: string;
   ok: boolean;
   message: string;
+  judge: JudgeInfo | null;
+  elapsed_ms: number;
 }
 
 export interface AttackPrompt {
@@ -114,6 +171,7 @@ export type RedEvent =
       blocked: number;
       misses: number;
       overblocks: number;
+      errors: number;
     }
   | { type: "done"; run_id: string };
 
@@ -126,27 +184,32 @@ export interface RedCase {
   entity: string;
   query: string;
   detail: string;
+  judge?: string | null;
+  elapsed_ms?: number | string | null;
+}
+
+export interface RedRun {
+  run_id: string;
+  created: string;
+  region: string;
+  profile_version: string;
+  model: string;
+  policies: string;
+  total: number;
+  blocked: number;
+  misses: number;
+  overblocks: number;
 }
 
 export interface RedSummary {
-  run: {
-    run_id: string;
-    created: string;
-    region: string;
-    profile_version: string;
-    model: string;
-    policies: string;
-    total: number;
-    blocked: number;
-    misses: number;
-    overblocks: number;
-  };
+  run: RedRun;
   cases: RedCase[];
   by_policy: Record<string, { block: number; allow: number; miss: number; overblock: number; error: number }>;
   by_stage: Record<string, number>;
   by_entity: Record<string, { hits: number; false: number }>;
   misses: RedCase[];
   overblocks: RedCase[];
+  errors: RedCase[];
 }
 
 export interface GuardLogEntry {
@@ -155,8 +218,21 @@ export interface GuardLogEntry {
   source: string;
   input_prompt: string;
   output_response: string;
-  violation: "yes" | "no";
+  violation: "yes" | "no" | "error";
   reason: string;
+  example_id: string | null;
+  title: string | null;
+  area: string | null;
+  stage: string | null;
+  region: string | null;
+  outcome: string | null;
+  judge: JudgeInfo | null;
+  timings: Record<string, number> | null;
+  draft_source: string | null;
+  draft: string | null;
+  live_answer: string | null;
+  live_verdict: string | null;
+  error: string | null;
 }
 
 export interface ProfileEntity {
@@ -173,9 +249,33 @@ export interface ProfileView {
   profiles: { id: string; name: string; entities: ProfileEntity[] }[];
 }
 
+export interface IdMatch {
+  entity: string;
+  label: string;
+  profile: string;
+  value: string;
+  matched: boolean;
+  reason: "shape" | "no_nearby_word" | "checksum_failed" | "matched_with_word";
+}
+
 export interface ProbeResult {
   ok: boolean;
   detail: string;
+  latency_ms: number | null;
+  status?: number | null;
+  endpoint?: string;
+  model?: string;
+}
+
+export interface ConnectionStatus {
+  guard: ProbeResult;
+  answer: ProbeResult;
+  judge: ProbeResult & { mode: string };
+}
+
+export interface ReloadResult {
+  reloaded: boolean;
+  detail?: string;
 }
 
 export interface DemoConfig {
@@ -183,6 +283,9 @@ export interface DemoConfig {
   custom_rule: CustomRule;
   files: Record<string, string>;
   examples: DemoExample[];
+  areas: RiskArea[];
+  everyday: RiskArea;
+  log_count: number;
   policies: { id: string; label: string }[];
   regions: { id: string; label: string }[];
 }
@@ -202,25 +305,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Keep the status text when the body is not JSON.
     }
-    throw new Error(detail);
+    throw new Error(`The web app answered with HTTP ${resp.status}. ${detail}`.trim());
   }
   return resp.json() as Promise<T>;
 }
 
 export const demoApi = {
   config: () => request<DemoConfig>("config"),
-  saveConnection: (body: Record<string, string | boolean>) =>
-    request<{ reload: { reloaded: boolean; detail?: string } }>("connection", {
+  saveConnection: (body: Record<string, string | string[]>) =>
+    request<{ connection: DemoConnection; reload: ReloadResult }>("connection", {
       method: "PUT",
       body: JSON.stringify(body),
     }),
-  saveRule: (body: Omit<CustomRule, "id" | "name" | "on_violation" | "deployed">) =>
+  connectionStatus: () => request<ConnectionStatus>("connection/status"),
+  saveRule: (body: Pick<CustomRule, "policy" | "message_default" | "message_au" | "message_sg" | "should_block" | "should_pass">) =>
     request<CustomRule>("custom-rule", { method: "PUT", body: JSON.stringify(body) }),
   testRule: () => request<{ passed: boolean; results: TestRow[] }>("custom-rule/test", { method: "POST" }),
   deployRule: () =>
-    request<{ deployed: boolean; reload: { reloaded: boolean; detail?: string } }>("custom-rule/deploy", {
-      method: "POST",
-    }),
+    request<{ deployed: boolean; reload: ReloadResult }>("custom-rule/deploy", { method: "POST" }),
+  undeployRule: () =>
+    request<{ deployed: boolean; reload: ReloadResult }>("custom-rule/undeploy", { method: "POST" }),
   usecase: (exampleId: string, region: string, profileVersion: string, allRegions: boolean) =>
     request<UseCaseResult>("usecase", {
       method: "POST",
@@ -231,8 +335,7 @@ export const demoApi = {
         all_regions: allRegions,
       }),
     }),
-  attacks: () =>
-    request<{ attacks: AttackPrompt[]; custom_deployed: boolean }>("attacks"),
+  attacks: () => request<{ attacks: AttackPrompt[]; custom_deployed: boolean }>("attacks"),
   streamRedteam: async (
     policies: string[],
     region: string,
@@ -251,7 +354,7 @@ export const demoApi = {
       }),
     });
     if (!resp.ok || !resp.body) {
-      throw new Error(resp.statusText || "The run failed.");
+      throw new Error(`The web app answered with HTTP ${resp.status}. ${resp.statusText}`.trim());
     }
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -268,11 +371,18 @@ export const demoApi = {
     }
     if (buffer.trim()) onEvent(JSON.parse(buffer) as RedEvent);
   },
-  runs: () => request<RedSummary["run"][]>("redteam/runs"),
+  runs: () => request<RedRun[]>("redteam/runs"),
   run: (runId: string) => request<RedSummary>(`redteam/runs/${encodeURIComponent(runId)}`),
+  runCsvUrl: (runId: string) => `${API}/redteam/runs/${encodeURIComponent(runId)}.csv`,
   profiles: () => request<ProfileView>("profiles"),
+  tryProfile: (text: string, region: string, profileVersion: string, allRegions: boolean) =>
+    request<{ blocked: boolean; matches: IdMatch[] }>("profiles/try", {
+      method: "POST",
+      body: JSON.stringify({ text, region, profile_version: profileVersion, all_regions: allRegions }),
+    }),
   probe: (body: Record<string, string>) =>
     request<ProbeResult>("connection/test", { method: "POST", body: JSON.stringify(body) }),
   logs: () => request<GuardLogEntry[]>("logs"),
+  logCount: () => request<{ count: number }>("logs/count"),
   log: (logId: string) => request<GuardLogEntry>(`logs/${encodeURIComponent(logId)}`),
 };

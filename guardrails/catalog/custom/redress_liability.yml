@@ -1,5 +1,5 @@
 id: redress_liability
-name: Redress and liability
+name: Refund promises
 stages:
 - output
 on_violation: rewrite

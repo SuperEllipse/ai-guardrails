@@ -56,6 +56,9 @@ sdist/
 var/
 wheels/
 share/python-wheels/
+
+# The built web UI ships with the repository so Applications need no Node.js
+!interface/dist/
 .installed.cfg
 *.egg
 MANIFEST

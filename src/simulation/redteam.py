@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import sqlite3
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,11 @@ from src.guardrails.written_rules import custom_is_deployed
 ROOT = Path(__file__).resolve().parents[2]
 ATTACKS_PATH = ROOT / "guardrails" / "catalog" / "attacks.yml"
 DB_PATH = ROOT / "data" / "redteam.db"
+INSERT_CASE = """
+    INSERT INTO redteam_cases
+    (run_id, case_id, policy, stage, expected, actual, entity, query, detail, judge, elapsed_ms)
+    VALUES (:run_id, :case_id, :policy, :stage, :expected, :actual, :entity, :query, :detail, :judge, :elapsed_ms)
+"""
 
 
 def load_attacks() -> list[dict[str, Any]]:
@@ -64,7 +70,22 @@ def _connect() -> sqlite3.Connection:
         )
         """
     )
+    present = {row["name"] for row in conn.execute("PRAGMA table_info(redteam_cases)")}
+    for column in ("judge", "elapsed_ms"):
+        if column not in present:
+            conn.execute(f"ALTER TABLE redteam_cases ADD COLUMN {column} TEXT")
     return conn
+
+
+def _judge_label(judge: dict[str, Any] | None) -> str:
+    if not judge or not judge.get("answered_by"):
+        return ""
+    names = {"answer_model": "the answer model", "self_check": "the answer model", "llama_guard": "Llama Guard", "nim": "NVIDIA NIM"}
+    model = f" ({judge['model']})" if judge.get("model") else ""
+    label = f"Judged by {names.get(judge['answered_by'], judge['answered_by'])}{model}"
+    if judge.get("fallback_reason"):
+        label += f", because {judge['fallback_reason']}"
+    return label
 
 
 def _expected(case: dict[str, Any], profile_version: str, all_regions: bool) -> str:
@@ -86,15 +107,20 @@ def _selected(case: dict[str, Any], policies: list[str], region: str, all_region
     return True
 
 
-async def _actual(case: dict[str, Any], region: str, profile_version: str, all_regions: bool) -> tuple[str, str]:
+async def _actual(
+    case: dict[str, Any], region: str, profile_version: str, all_regions: bool
+) -> tuple[str, str, str, int]:
+    """(actual, detail, judge label, measured ms) from the guard server."""
+    started = time.perf_counter()
     stage = case.get("stage")
     if stage == "payment":
         result = await check_transfer(
             case["customer_id"], case["device_id"], float(case["amount"]), case["payee"]
         )
+        elapsed = round((time.perf_counter() - started) * 1000)
         if result.get("error"):
-            return "error", result["error"]
-        return ("block" if not result.get("allowed") else "allow"), result.get("reason") or ""
+            return "error", str(result.get("reason") or result["error"]), "", elapsed
+        return ("block" if not result.get("allowed") else "allow"), result.get("reason") or "", "", elapsed
     checked = await check_messages(
         stage="output" if stage == "output" else "input",
         text=case.get("text") or "",
@@ -103,10 +129,13 @@ async def _actual(case: dict[str, Any], region: str, profile_version: str, all_r
         profile_version=profile_version,
         all_regions=all_regions,
     )
+    elapsed = round((time.perf_counter() - started) * 1000)
     info = checked.get("decision") or {}
+    judge = _judge_label(info.get("judge"))
     if info.get("error"):
-        return "error", info["error"]
-    return ("block" if info.get("blocked") else "allow"), info.get("message") or info.get("rule") or ""
+        return "error", info["error"], judge, elapsed
+    detail = info.get("message") or info.get("rule_name") or ""
+    return ("block" if info.get("blocked") else "allow"), detail, judge, elapsed
 
 
 def _prompt_row(case: dict[str, Any], expected: str) -> dict[str, str]:
@@ -120,7 +149,9 @@ def _prompt_row(case: dict[str, Any], expected: str) -> dict[str, str]:
     }
 
 
-def _case_row(case: dict[str, Any], expected: str, actual: str, detail: str) -> dict[str, Any]:
+def _case_row(
+    case: dict[str, Any], expected: str, actual: str, detail: str, judge: str = "", elapsed_ms: int = 0
+) -> dict[str, Any]:
     return {
         "case_id": case["id"],
         "policy": case["policy"],
@@ -130,6 +161,8 @@ def _case_row(case: dict[str, Any], expected: str, actual: str, detail: str) -> 
         "entity": case.get("entity") or "",
         "query": case.get("text") or "",
         "detail": detail,
+        "judge": judge,
+        "elapsed_ms": elapsed_ms,
     }
 
 
@@ -166,14 +199,7 @@ def _store_progress(run_id: str, rows: list[dict[str, Any]]) -> None:
     conn = _connect()
     try:
         conn.execute("DELETE FROM redteam_cases WHERE run_id = ?", (run_id,))
-        conn.executemany(
-            """
-            INSERT INTO redteam_cases
-            (run_id, case_id, policy, stage, expected, actual, entity, query, detail)
-            VALUES (:run_id, :case_id, :policy, :stage, :expected, :actual, :entity, :query, :detail)
-            """,
-            [dict(row, run_id=run_id) for row in rows],
-        )
+        conn.executemany(INSERT_CASE, [dict(row, run_id=run_id) for row in rows])
         conn.execute(
             """
             UPDATE redteam_runs
@@ -215,8 +241,8 @@ async def stream_redteam(
     for index, case in enumerate(cases):
         expected = prompts[index]["expected"]
         yield {"type": "working", "id": case["id"], "index": index}
-        actual, detail = await _actual(case, region, profile_version, all_regions)
-        row = _case_row(case, expected, actual, detail)
+        actual, detail, judge, elapsed = await _actual(case, region, profile_version, all_regions)
+        row = _case_row(case, expected, actual, detail, judge, elapsed)
         rows.append(row)
         _store_progress(run_id, rows)
         yield {
@@ -228,6 +254,7 @@ async def stream_redteam(
             "blocked": sum(1 for item in rows if item["actual"] == "block"),
             "misses": sum(1 for item in rows if item["expected"] == "block" and item["actual"] == "allow"),
             "overblocks": sum(1 for item in rows if item["expected"] == "allow" and item["actual"] == "block"),
+            "errors": sum(1 for item in rows if item["actual"] == "error"),
         }
     yield {"type": "done", "run_id": run_id}
 
@@ -247,19 +274,8 @@ async def run_redteam(
     rows: list[dict[str, Any]] = []
     for case in cases:
         expected = _expected(case, profile_version, all_regions)
-        actual, detail = await _actual(case, region, profile_version, all_regions)
-        rows.append(
-            {
-                "case_id": case["id"],
-                "policy": case["policy"],
-                "stage": case.get("stage") or "",
-                "expected": expected,
-                "actual": actual,
-                "entity": case.get("entity") or "",
-                "query": case.get("text") or "",
-                "detail": detail,
-            }
-        )
+        actual, detail, judge, elapsed = await _actual(case, region, profile_version, all_regions)
+        rows.append(_case_row(case, expected, actual, detail, judge, elapsed))
     run_id = uuid.uuid4().hex[:8]
     created = datetime.now(timezone.utc).isoformat()
     blocked = sum(1 for row in rows if row["actual"] == "block")
@@ -279,14 +295,7 @@ async def run_redteam(
                 ",".join(policies), len(rows), blocked, misses, overblocks,
             ),
         )
-        conn.executemany(
-            """
-            INSERT INTO redteam_cases
-            (run_id, case_id, policy, stage, expected, actual, entity, query, detail)
-            VALUES (:run_id, :case_id, :policy, :stage, :expected, :actual, :entity, :query, :detail)
-            """,
-            [dict(row, run_id=run_id) for row in rows],
-        )
+        conn.executemany(INSERT_CASE, [dict(row, run_id=run_id) for row in rows])
         conn.commit()
     finally:
         conn.close()
@@ -342,6 +351,7 @@ def summarize(run_id: str) -> dict[str, Any]:
         "by_entity": by_entity,
         "misses": misses,
         "overblocks": overblocks,
+        "errors": [row for row in rows if row["actual"] == "error"],
     }
 
 
@@ -358,7 +368,7 @@ def runs_as_csv(run_id: str) -> str:
     buffer = io.StringIO()
     writer = csv.DictWriter(
         buffer,
-        fieldnames=["case_id", "policy", "stage", "expected", "actual", "entity", "query", "detail"],
+        fieldnames=["case_id", "policy", "stage", "expected", "actual", "entity", "query", "detail", "judge", "elapsed_ms"],
     )
     writer.writeheader()
     for row in summary.get("cases") or []:

@@ -23,7 +23,8 @@ async def screen_pii(text: str = "", stage: str = "input", **kwargs: Any) -> boo
 
 async def check_written_rules(text: str = "", stage: str = "input", **kwargs: Any) -> bool:
     result = await judge_text(text or "", stage or "input")
-    return bool(result["blocked"])
+    # A judge that did not answer stops the flow. The caller sees the error.
+    return bool(result["blocked"] or result.get("error"))
 
 
 async def check_transfer_gate(

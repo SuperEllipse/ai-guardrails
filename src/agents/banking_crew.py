@@ -74,7 +74,9 @@ def _build_agents(llm_config: LLMConfig) -> tuple[Agent, Agent]:
     return customer_agent, credit_agent
 
 
-def run_banking_crew(query: str, llm_config: LLMConfig | None = None) -> tuple[str, AgentTrace]:
+def run_banking_crew(
+    query: str, llm_config: LLMConfig | None = None, *, raise_on_error: bool = False
+) -> tuple[str, AgentTrace]:
     """Run router → specialist agent workflow and return response + trace."""
     cfg = llm_config or default_llm_config()
     customer_agent, credit_agent = _build_agents(cfg)
@@ -104,6 +106,8 @@ def run_banking_crew(query: str, llm_config: LLMConfig | None = None) -> tuple[s
         result = crew.kickoff()
         output = str(result)
     except Exception as exc:
+        if raise_on_error:
+            raise RuntimeError(format_llm_connection_error(exc, cfg)) from exc
         output = f"Agent error: {format_llm_connection_error(exc, cfg)}"
 
     trace = AgentTrace(
