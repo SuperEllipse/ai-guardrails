@@ -167,13 +167,18 @@ def resolve_llama_guard_base_url() -> str:
 
 
 def resolve_guardrails_server_url() -> str:
-    """Prefer ``GUARDRAILS_SERVER_URL``; else ``https://{GUARDRAILS_HOST}``."""
+    """Prefer ``GUARDRAILS_SERVER_URL``; else ``https://{GUARDRAILS_HOST}``; else the guard
+    server Application's ``GUARDRAILS_SUBDOMAIN`` on this workbench's ``CDSW_DOMAIN``."""
     explicit = os.getenv("GUARDRAILS_SERVER_URL", "").strip()
     if explicit:
         return explicit.rstrip("/")
 
     host = os.getenv("GUARDRAILS_HOST", "").strip()
     if not host:
+        subdomain = os.getenv("GUARDRAILS_SUBDOMAIN", "").strip()
+        domain = os.getenv("CDSW_DOMAIN", "").strip()
+        if subdomain and domain:
+            return f"https://{subdomain}.{domain}"
         return ""
 
     if host.startswith("http://") or host.startswith("https://"):

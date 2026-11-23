@@ -102,7 +102,8 @@ def main() -> int:
     mode = _detect_mode(args.mode)
     if mode == "application":
         # GUARDRAILS_PORT points at a guard server in the same session; an Application reaches
-        # the guard server Application through GUARDRAILS_SERVER_URL or GUARDRAILS_HOST.
+        # the guard server Application through GUARDRAILS_SERVER_URL, GUARDRAILS_HOST, or
+        # GUARDRAILS_SUBDOMAIN on this workbench's domain.
         os.environ.pop("GUARDRAILS_PORT", None)
     bind_host, port = pick_bind(mode, "web")
 
