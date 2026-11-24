@@ -53,7 +53,10 @@ output:
 
 Requirements and costs:
 
-- NeMo Guardrails 0.24.1 requires exactly the spaCy model `en_core_web_lg` (about 560 MB download); `scripts/install_dependencies.py` installs it.
+- The pinned NeMo Guardrails 0.25.0 / Presidio stack uses spaCy 3.8.18 and
+  `en_core_web_lg` 3.8.0 (about 560 MB). The model declares compatibility with
+  spaCy `>=3.8.0,<3.9.0`; `scripts/install_dependencies.py` installs this exact set
+  from `requirements.txt`.
 - The guard server loads the model on the first check after it starts, which takes about 5 seconds. Later checks take tens of milliseconds. With the model loaded, the guard server uses under 1 GiB of memory.
 - NeMo's extension reports only whether it found something, not what. The app therefore says "personal details, such as a name, place, or crypto wallet" rather than naming the value.
 

@@ -26,7 +26,8 @@ You need a Cloudera AI Workbench, an answer model endpoint on Cloudera AI Infere
 1. In Cloudera AI Workbench, create a new project from **AMPs**, or choose **New Project > Git** and enter this repository's URL.
 2. Fill in the model settings. The required ones are `CAIIS_HOST`, `CAIIS_ENDPOINT`, `CAIIS_MODEL_ORG`, and `CAIIS_MODEL_NAME`. Set `CAIIS_API_PATH=none` when the endpoint's address ends in `/endpoints/<name>/v1` without `/openai`. To use Llama Guard as the judge, fill in the `LLAMA_GUARD_*` settings and set `DEFAULT_SAFETY_MODE=llama_guard`. No token is needed: the app reads the session's own token.
 3. Launch. The AMP ([`.project-metadata.yaml`](.project-metadata.yaml)) recommends the **PBJ Workbench, Python 3.12, Standard** runtime, then:
-   - installs `requirements.txt` and the spaCy model `en_core_web_lg` (about 560 MB) that NeMo's PII extension requires
+   - installs the pinned packages in `requirements.txt`, including spaCy 3.8.18 and
+     `en_core_web_lg` 3.8.0 (about 560 MB), which NeMo's PII extension requires
    - starts **NeMo Guardrails Server** (subdomain `nemo-guardrails`, unauthenticated access)
    - starts **Guardrails for Banking Demo** (subdomain `banking-guardrails-demo`)
 4. Open **Guardrails for Banking Demo**, go to **Setup**, and press **Test connection** on each card. All three should say "Connected".

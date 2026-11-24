@@ -3,14 +3,6 @@
 
 from __future__ import annotations
 
-try:
-    import pysqlite3
-    import sys
-
-    sys.modules["sqlite3"] = pysqlite3
-except ImportError:
-    pass
-
 import argparse
 import os
 import sys
@@ -35,6 +27,7 @@ def _bootstrap_import_path() -> None:
 
 _bootstrap_import_path()
 
+from src.runtime.sqlite_compat import apply_sqlite3_compat  # noqa: E402
 from src.runtime.startup import (  # noqa: E402
     configure_guardrails_llm_env,
     get_guardrails_config_path,
@@ -91,6 +84,7 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = _parse_args()
+    apply_sqlite3_compat()
 
     project_root = setup_pythonpath(resolve_project_root(_script_anchor()))
     load_dotenv_files(project_root)

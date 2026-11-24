@@ -10,11 +10,19 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-# NeMo Guardrails' PII extension requires exactly this spaCy model (about 560 MB).
-SPACY_MODEL = "en_core_web_lg"
+REQUIREMENTS = ROOT / "requirements.txt"
 
-print(f"Installing {ROOT / 'requirements.txt'} with {sys.executable} ({sys.version.split()[0]})")
-subprocess.check_call([sys.executable, "-m", "pip", "install", "--progress-bar", "off", "-r", str(ROOT / "requirements.txt")])
-print(f"Installing the spaCy model {SPACY_MODEL} for NeMo's PII extension")
-subprocess.check_call([sys.executable, "-m", "spacy", "download", SPACY_MODEL])
+print(f"Installing {REQUIREMENTS} with {sys.executable} ({sys.version.split()[0]})")
+subprocess.check_call(
+    [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--progress-bar",
+        "off",
+        "-r",
+        str(REQUIREMENTS),
+    ]
+)
 print("Dependencies installed.")

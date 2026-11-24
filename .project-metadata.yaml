@@ -98,8 +98,8 @@ tasks:
     script: scripts/install_dependencies.py
     short_summary: Installing the Python dependencies.
     long_summary: >-
-      Installs requirements.txt with the runtime's Python, then the spaCy model
-      en_core_web_lg (about 560 MB) that NeMo Guardrails' PII extension requires. The
+      Installs the pinned requirements with the runtime's Python, including
+      en_core_web_lg 3.8.0 (about 560 MB) for NeMo Guardrails' PII extension. The
       Applications use the same runtime, so the compiled packages match.
     kernel: python3
     cpu: 2

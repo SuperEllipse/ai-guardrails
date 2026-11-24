@@ -25,17 +25,6 @@ def _system_sqlite_version() -> tuple[int, int, int]:
     return _parse_version(sqlite3.sqlite_version)
 
 
-def needs_pysqlite3_shim() -> bool:
-    """Return True when pysqlite3 is required because system sqlite is too old."""
-    try:
-        import pysqlite3  # noqa: F401
-
-        return False
-    except ImportError:
-        pass
-    return _system_sqlite_version() < _MIN_SQLITE_VERSION
-
-
 def apply_sqlite3_compat() -> None:
     """Patch sys.modules['sqlite3'] with pysqlite3 when available.
 
@@ -58,6 +47,5 @@ def apply_sqlite3_compat() -> None:
     min_label = ".".join(str(part) for part in _MIN_SQLITE_VERSION)
     raise RuntimeError(
         f"Unsupported SQLite version ({version_label}); ChromaDB requires sqlite3 >= {min_label}. "
-        "Install a newer SQLite module in this engine: pip install pysqlite3-binary "
-        "(or pip install -r requirements.txt once per CAI Application engine)."
+        "Install the project's pinned dependencies with python scripts/install_dependencies.py."
     )

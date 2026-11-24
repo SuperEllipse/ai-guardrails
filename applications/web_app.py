@@ -25,11 +25,10 @@ def _bootstrap_import_path() -> None:
 
 _bootstrap_import_path()
 
-from src.runtime.sqlite_compat import apply_sqlite3_compat, needs_pysqlite3_shim  # noqa: E402
+from src.runtime.sqlite_compat import apply_sqlite3_compat  # noqa: E402
 
 import argparse
 import os
-import subprocess
 
 from src.runtime.startup import (  # noqa: E402
     is_platform_application_env,
@@ -62,18 +61,7 @@ def _running_under_ipykernel() -> bool:
 
 
 def _ensure_sqlite_compat() -> None:
-    """Apply sqlite3 shim; auto-install pysqlite3-binary on CAI engines when missing."""
-    if needs_pysqlite3_shim():
-        try:
-            import pysqlite3  # noqa: F401
-        except ImportError:
-            print(
-                "System sqlite3 is too old for ChromaDB; installing pysqlite3-binary…",
-                file=sys.stderr,
-            )
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "pysqlite3-binary"],
-            )
+    """Apply the SQLite shim installed by scripts/install_dependencies.py."""
     apply_sqlite3_compat()
 
 
