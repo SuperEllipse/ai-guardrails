@@ -1,3 +1,4 @@
+#updated Requirements with pinned versions
 nemoguardrails[server,sdd,jailbreak,openai]==0.25.0
 crewai==1.15.44
 fastapi==0.165.0
