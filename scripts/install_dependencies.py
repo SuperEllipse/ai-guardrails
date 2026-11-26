@@ -9,7 +9,21 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+
+def _project_root() -> Path:
+    """Resolve the project root in both script and AMP/IPython execution."""
+    try:
+        return Path(__file__).resolve().parents[1]
+    except NameError:
+        for candidate in (Path.cwd(), Path("/home/cdsw")):
+            if (candidate / "requirements.txt").is_file():
+                return candidate.resolve()
+        raise RuntimeError(
+            "Could not locate requirements.txt. Run this task from the project root."
+        )
+
+
+ROOT = _project_root()
 REQUIREMENTS = ROOT / "requirements.txt"
 
 print(f"Installing {REQUIREMENTS} with {sys.executable} ({sys.version.split()[0]})")
